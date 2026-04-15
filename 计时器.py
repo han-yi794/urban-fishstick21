@@ -4,7 +4,7 @@ import time
 import datetime
 import threading
 import sys
-from speak import Speak
+from speak import speak_chinese, speak_english
 
 class CountdownTimer:
     def __init__(self, root):
@@ -199,8 +199,8 @@ class CountdownTimer:
                 time_str = f"{minutes_display:02d}:{seconds_display:02d}"
                 self.time_display.config(text=time_str, fg='#28A745')
                 
-                # 重置进度条
-                self.progress_bar['value'] = 0
+                # 初始化进度条为满值，倒计时过程中逐渐减少
+                self.progress_bar['value'] = 100
                 
             except ValueError:
                 messagebox.showerror("错误", "请输入有效的数字")
@@ -241,7 +241,7 @@ class CountdownTimer:
         # 重置显示
         self.time_display.config(text="05:00", fg='#28A745')
         self.status_label.config(text="已重置，请输入新的倒计时时间")
-        self.progress_bar['value'] = 0
+        self.progress_bar['value'] = 100
         
         # 重置输入框为默认值
         self.time_entry.delete(0, tk.END)
@@ -251,7 +251,7 @@ class CountdownTimer:
         if self.is_running and not self.is_paused:
             # 检查是否需要播报15分钟提示
             if not self.already_announced_15min and self.remaining_seconds <= 900 and self.remaining_seconds > 895:
-                Speak("距考试结束还有十五分钟！", 100,).chinese()
+                speak_chinese("距考试结束还有十五分钟！", 200)
                 self.already_announced_15min = True
             
             if self.remaining_seconds > 0:
@@ -266,7 +266,7 @@ class CountdownTimer:
                 self.time_display.config(text=time_str)
                 
                 # 更新进度条
-                progress_value = 100 * (self.total_seconds - self.remaining_seconds) / self.total_seconds
+                progress_value = 100 * self.remaining_seconds / self.total_seconds
                 self.progress_bar['value'] = progress_value
                 
                 # 当时间少于1分钟时改变颜色
@@ -279,8 +279,8 @@ class CountdownTimer:
                 if self.remaining_seconds <= 0:
                     self.time_display.config(text="00:00", fg='#DC3545')
                     self.status_label.config(text="时间到！")
-                    Speak("考试结束！请考生停止答卷！", 100,).chinese()
-                    self.progress_bar['value'] = 100
+                    speak_chinese("考试结束！请考生停止答卷！", 200)
+                    self.progress_bar['value'] = 0
                     self.is_running = False
                     self.start_button.config(state=tk.NORMAL)
                     self.pause_button.config(state=tk.DISABLED)
