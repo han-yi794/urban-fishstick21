@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
+    <title>CPU性能测试</title>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        html,body{width:100%;height:100%;overflow:hidden;background:#0a0a0a;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC",sans-serif;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none;-webkit-font-smoothing:antialiased}
+        .app{display:flex;flex-direction:column;height:100%;height:100dvh}
+        .hd{padding:14px 20px;padding-top:max(14px,env(safe-area-inset-top));display:flex;align-items:center;justify-content:space-between}
+        .hd-t{font-size:17px;font-weight:600;letter-spacing:-0.3px}
+        .dot{width:8px;height:8px;border-radius:50%;background:#333;transition:background .3s}
+        .ca{flex:1;min-height:0;position:relative}
+        .ca canvas{width:100%;height:100%;display:block}
+        .ca::after{content:'';position:absolute;bottom:0;left:0;right:0;height:32px;background:linear-gradient(transparent,#0a0a0a);pointer-events:none}
+        .dt{flex-shrink:0}
+        .fp{text-align:center;padding:2px 0 0}
+        .fv{font-size:64px;font-weight:800;line-height:1;letter-spacing:-4px;font-variant-numeric:tabular-nums;transition:color .2s}
+        .fl{font-size:11px;color:#555;letter-spacing:3px;margin-top:2px}
+        .ch{display:none;text-align:center;font-size:12px;color:#ff9f0a;padding:3px 0}
+        .ms{display:flex;justify-content:space-around;padding:10px 16px;border-top:1px solid #1a1a1a}
+        .m{text-align:center}
+        .mv{font-size:18px;font-weight:600;font-variant-numeric:tabular-nums}
+        .ml{font-size:10px;color:#444;margin-top:3px}
+        .sb{display:none;text-align:center;padding:6px 0 2px}
+        .sv{font-size:52px;font-weight:800;line-height:1;letter-spacing:-3px;color:#ff3b30;font-variant-numeric:tabular-nums}
+        .stl{font-size:11px;color:#444;margin-top:4px}
+        .sr{font-size:14px;color:#666;margin-top:4px;font-weight:500}
+        .df{display:flex;gap:8px;padding:0 20px;margin-bottom:10px;transition:opacity .2s}
+        .db{flex:1;height:36px;border:1px solid #2a2a2a;border-radius:8px;background:0 0;color:#666;font-size:13px;font-weight:500;cursor:pointer;-webkit-appearance:none;appearance:none;transition:all .15s}
+        .db.on{border-color:#ff3b30;color:#ff3b30;background:rgba(255,59,48,.08)}
+        .db:active{opacity:.5}
+        .bw{padding:0 20px 8px}
+        .bt{width:100%;height:48px;border:none;border-radius:10px;font-size:15px;font-weight:600;color:#fff;cursor:pointer;-webkit-appearance:none;appearance:none}
+        .bt:active{opacity:.55}
+        .bg{background:#ff3b30}
+        .bs{background:#2a2a2a}
+        .bt:disabled{opacity:.2;pointer-events:none}
+        .ft{padding:0 24px;padding-bottom:max(16px,env(safe-area-inset-bottom));text-align:center;font-size:12px;color:#333;line-height:1.5;min-height:36px;transition:color .3s}
+        .cg{color:#30d158}.cw{color:#ff9f0a}.cr{color:#ff3b30}.ci{color:#555}
+    </style>
+</head>
+<body>
+<div class="app">
+    <div class="hd"><span class="hd-t">CPU性能测试</span><div class="dot" id="dot"></div></div>
+    <div class="ca"><canvas id="cv"></canvas></div>
+    <div class="dt">
+        <div class="fp"><div class="fv ci" id="fv">--</div><div class="fl">FPS</div></div>
+        <div class="ch" id="ch">校准基准帧率中...</div>
+        <div class="ms">
+            <div class="m"><div class="mv" id="el">-</div><div class="ml">负载等级</div></div>
+            <div class="m"><div class="mv" id="et">00:00</div><div class="ml">运行时间</div></div>
+            <div class="m"><div class="mv" id="eo">-</div><div class="ml">运算量/帧</div></div>
+        </div>
+    </div>
+    <div class="sb" id="sb">
+        <div class="sv" id="sv">0</div>
+        <div class="stl">性能分数</div>
+        <div class="sr" id="srt"></div>
+    </div>
+    <div class="df" id="df">
+        <button class="db" onclick="pickDiff(0)">简单</button>
+        <button class="db on" onclick="pickDiff(1)">困难</button>
+        <button class="db" onclick="pickDiff(2)">地狱</button>
+    </div>
+    <div class="bw"><button class="bt bg" id="bt" onclick="tap()">开始测试</button></div>
+    <div class="ft" id="ft">选个难度，然后按开始</div>
+</div>
+<script>
+/* ===== 难度配置：每级增加主线程占用时间 ===== */
+var DIFFS=[
+    {name:'简单',msStep:1.5,msInit:1,msMax:100,mul:1.0},
+    {name:'困难',msStep:3,  msInit:2,msMax:110,mul:1.8},
+    {name:'地狱',msStep:5,  msInit:3,msMax:120,mul:3.0}
+];
+var diffIdx=1;
+
+/* ===== 嘲讽文案 ===== */
+var taunts=[
+    "你的CPU是用算盘做的吗","这块CPU是上个世纪出土的吧",
+    "你的手机CPU正在超负荷冒烟","连个加减法都算不动",
+    "你的处理器被降频到胎儿级别了","这个运算速度，算盘都比你快",
+    "你的CPU在测试中提交了辞呈","测完了，你的CPU需要进ICU",
+    "这个CPU性能主要靠你的想象力","你的手机处理器刚才写了遗书",
+    "这运算速度，蜗牛都看不下去了","建议把手机放到冰箱里再测",
+    "你的CPU温度已经可以煎鸡蛋了","测试过程中CPU流下了绝望的泪水",
+    "这个分数，建议刻在CPU的墓碑上","你的处理器已经被逼到绝路了",
+    "连计算器芯片都比你强","你的CPU在测试时偷偷拨打了120",
+    "这块CPU的性能约等于一块砖头","测完这个，你的手机需要心理辅导",
+    "你的CPU刚才申请了劳动仲裁","这个运算能力放在十年前都算差",
+    "你的手机CPU已经被玩出了工伤","选了地狱难度？你的CPU表示不服",
+    "测试结果出来了，建议不要告诉任何人","你的CPU正在考虑转行做散热片",
+    "这性能，打开计算器都要转三圈","你的处理器在测试前后不是同一个了",
+    "CPU温度高到可以当暖手宝用了","你的手机说它真的尽力了",
+    "这个分数发出去会社会性死亡","你的CPU已经放弃挣扎了",
+    "建议换一个算盘，性能可能更好","测完后你的手机申请了工伤鉴定",
+    "你的CPU运算速度约等于手动计数","这块处理器的主要功能是发热",
+    "你的CPU在测试中经历了什么不敢细想","这个运算量对它来说已经是极限了",
+    "你的CPU主频是用心跳计量的吗","测试时你的手机主板差点自燃",
+    "这算力还不如我奶奶心算快","你的CPU刚才被热搜刷屏了——因为太慢"
+];
+var runTxt=[
+    "你的CPU在冒汗...","还能撑住吗？","处理器正在发烧...",
+    "别心疼，继续跑","温度正在攀升...","你的CPU在求饶",
+    "散热已经摆烂了","坚持住，快了（并没有）","运算开始吃力了哦",
+    "你的CPU开始颤抖了","处理器在疯狂挣扎","这时候后悔选难度已经晚了"
+];
+
+/* ===== DOM ===== */
+function $(id){return document.getElementById(id)}
+var fv=$('fv'),dot=$('dot'),ch=$('ch'),df=$('df');
+var el=$('el'),et=$('et'),eo=$('eo');
+var sb=$('sb'),sv=$('sv'),srt=$('srt');
+var bt=$('bt'),ft=$('ft'),cv=$('cv');
+var ctx=cv.getContext('2d');
+
+/* ===== 波形参数 ===== */
+var waves=[
+    {freq:.018,amp:.22,ph:0,  r:255,g:55, b:45, a:.5, w:2},
+    {freq:.013,amp:.32,ph:1.2,r:255,g:95, b:35, a:.35,w:1.5},
+    {freq:.024,amp:.16,ph:2.5,r:255,g:135,b:25, a:.25,w:1},
+    {freq:.009,amp:.38,ph:3.8,r:200,g:45, b:28, a:.2, w:1},
+    {freq:.029,amp:.1, ph:5,  r:255,g:75, b:55, a:.15,w:.8},
+    {freq:.007,amp:.28,ph:6.2,r:180,g:35, b:22, a:.12,w:.6}
+];
+
+function resize(){
+    var dpr=Math.min(window.devicePixelRatio||1,2);
+    var w=cv.clientWidth*dpr,h=cv.clientHeight*dpr;
+    if(cv.width!==w||cv.height!==h){cv.width=w;cv.height=h}
+}
+
+/* 绘制波形，noiseLv 0~1 控制噪声强度 */
+function drawWaves(time,noiseLv){
+    var w=cv.width,h=cv.height,cy=h/2;
+    /* 余晖：压力越大拖尾越长 */
+    var alpha=st==='testing'?Math.max(.06,.28-noiseLv*.22):.22;
+    ctx.fillStyle='rgba(10,10,10,'+alpha+')';
+    ctx.fillRect(0,0,w,h);
+
+    for(var i=0;i<waves.length;i++){
+        var wv=waves[i];
+        ctx.beginPath();
+        ctx.strokeStyle='rgba('+wv.r+','+wv.g+','+wv.b+','+wv.a+')';
+        ctx.lineWidth=wv.w;
+        for(var x=0;x<=w;x+=2){
+            var nx=x/w;
+            var y=cy+(
+                Math.sin(nx*wv.freq*w+time*.6+wv.ph)*wv.amp*h*.5+
+                Math.sin(nx*wv.freq*w*2.1+time*.35+wv.ph*.7)*wv.amp*h*.2+
+                Math.cos(nx*wv.freq*w*.5+time*.8)*wv.amp*h*.1
+            );
+            if(noiseLv>0)y+=(Math.random()-.5)*noiseLv*h*.18;
+            if(x===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+        }
+        ctx.stroke();
+    }
+}
+
+/* ===== CPU压力：混合浮点+整数密集运算 ===== */
+function cpuStress(targetMs){
+    var start=performance.now(),x=1,y=2,z=3,ops=0;
+    while(performance.now()-start<targetMs){
+        x=Math.sin(x*1.1+y*.7)*Math.cos(y*.9-x*.3);
+        y=Math.sqrt(Math.abs(x*y+1))+Math.log(Math.abs(x)+1);
+        z=Math.atan2(x,y)*Math.exp(-.01*ops);
+        x+=z*.001;
+        /* 每1024次做一段整数素性检测 */
+        if((ops&1023)===0){
+            var n=((Math.floor(Math.abs(x*1e6))%999999)+100003)|0;
+            for(var d=2;d*d<n;d++){if(n%d===0)break}
+        }
+        ops++;
+    }
+    return ops;
+}
+
+/* ===== 测试状态 ===== */
+var st='idle',baseFps=0,curFps=0;
+var level=1,maxLv=1,t0=0,testT0=0;
+var fc=0,lastFt=0,calN=0,calSum=0;
+var totalOps=0,sampleOps=0,sampleFc=0;
+var animId=null,txtI=0,lastTxtSw=0,idleId=null;
+
+/* 空闲动画 */
+function idleLoop(){
+    idleId=requestAnimationFrame(idleLoop);
+    if(st==='calibrating'||st==='testing')return;
+    resize();
+    drawWaves(performance.now()/1000,0);
+}
+
+/* 难度选择 */
+function pickDiff(i){
+    if(st!=='idle'&&st!=='finished')return;
+    diffIdx=i;
+    var btns=document.querySelectorAll('.db');
+    for(var j=0;j<btns.length;j++)btns[j].classList.toggle('on',j===i);
+}
+
+function tap(){
+    if(st==='idle'||st==='finished')go();else stop();
+}
+
+function go(){
+    if(idleId){cancelAnimationFrame(idleId);idleId=null}
+    /* 清屏 */
+    ctx.fillStyle='#0a0a0a';ctx.fillRect(0,0,cv.width,cv.height);
+
+    baseFps=0;curFps=0;level=1;maxLv=1;
+    calN=0;calSum=0;totalOps=0;sampleOps=0;sampleFc=0;
+    txtI=0;lastTxtSw=0;
+    st='calibrating';t0=performance.now();lastFt=t0;fc=0;
+
+    fv.textContent='--';fv.className='fv ci';
+    el.textContent='-';et.textContent='00:00';eo.textContent='-';
+    sb.style.display='none';ch.style.display='block';
+    dot.style.background='#ff9f0a';
+    bt.textContent='停止测试';bt.className='bt bs';
+    ft.textContent='正在校准基准帧率...';ft.style.color='';
+    df.style.opacity='.3';df.style.pointerEvents='none';
+
+    if(animId)cancelAnimationFrame(animId);
+    loop();
+}
+
+function stop(){done('手动停止了，看来是怕了')}
+
+function done(msg){
+    st='finished';
+    if(animId){cancelAnimationFrame(animId);animId=null}
+    var d=DIFFS[diffIdx];
+    var score;
+    if(testT0===0){
+        score=Math.max(0,Math.round(baseFps*50*d.mul));
+    }else{
+        score=Math.round(totalOps/1000*d.mul);
+    }
+
+    sb.style.display='block';
+    numAnim(sv,score);
+
+    var rank;
+    if(score>=20000)rank='怪物级水平';
+    else if(score>=10000)rank='旗舰水平';
+    else if(score>=5000)rank='中高端水平';
+    else if(score>=2000)rank='中端水平';
+    else if(score>=500)rank='入门水平';
+    else rank='电子垃圾水平';
+    srt.textContent=rank;
+
+    ch.style.display='none';dot.style.background='#ff3b30';
+    bt.textContent='重新测试';bt.className='bt bg';
+    ft.textContent=msg||taunts[Math.floor(Math.random()*taunts.length)];
+    ft.style.color='#555';
+    df.style.opacity='1';df.style.pointerEvents='auto';
+
+    /* 清屏恢复空闲 */
+    ctx.fillStyle='#0a0a0a';ctx.fillRect(0,0,cv.width,cv.height);
+    if(!idleId)idleLoop();
+}
+
+function numAnim(el,tgt){
+    var c=0,step=Math.max(1,Math.ceil(tgt/25));
+    var iv=setInterval(function(){
+        c+=step;if(c>=tgt){c=tgt;clearInterval(iv)}
+        el.textContent=c.toLocaleString();
+    },25);
+}
+
+function fmtOps(n){
+    if(n<10000)return n.toLocaleString();
+    if(n<1e8)return(n/10000).toFixed(1)+'万';
+    return Math.round(n/1e8)+'亿';
+}
+
+/* ===== 主循环 ===== */
+function loop(){
+    animId=requestAnimationFrame(loop);
+    resize();
+
+    var now=performance.now();
+    var d=DIFFS[diffIdx];
+    var elapsed=testT0>0?(now-testT0)/1000:0;
+
+    /* 当前等级对应的目标计算时间 */
+    var targetMs=0;
+    if(st==='testing'){
+        targetMs=Math.min(d.msInit+level*d.msStep,d.msMax);
+    }
+
+    /* 执行CPU压力 */
+    var frameOps=0;
+    if(targetMs>0) frameOps=cpuStress(targetMs);
+    if(st==='testing'){totalOps+=frameOps;sampleOps+=frameOps;sampleFc++}
+
+    /* 噪声强度 */
+    var noiseLv=st==='testing'?Math.min(targetMs/d.msMax,1):0;
+
+    /* 绘制波形 */
+    drawWaves((now-t0)/1000,noiseLv);
+    fc++;
+
+    /* 每500ms采样 */
+    if(now-lastFt>=500){
+        curFps=Math.round(fc/((now-lastFt)/1000));
+        fc=0;lastFt=now;
+
+        fv.textContent=curFps;
+        if(curFps>=50)fv.className='fv cg';
+        else if(curFps>=25)fv.className='fv cw';
+        else fv.className='fv cr';
+
+        /* 校准 */
+        if(st==='calibrating'){
+            calN++;calSum+=curFps;
+            if(curFps<8&&calN>=2){baseFps=Math.round(calSum/calN);testT0=0;done();return}
+            if(calN>=6){
+                baseFps=Math.round(calSum/calN);
+                if(baseFps<15){testT0=0;done();return}
+                st='testing';testT0=performance.now();
+                ch.style.display='none';dot.style.background='#30d158';
+                ft.textContent=runTxt[0];ft.style.color='#444';lastTxtSw=now;
+            }
+        }
+
+        /* 测试中 */
+        if(st==='testing'){
+            level=Math.floor(elapsed)+1;
+            if(level>maxLv)maxLv=level;
+
+            el.textContent='Lv.'+level;
+            eo.textContent=fmtOps(sampleFc>0?Math.round(sampleOps/sampleFc):0);
+            sampleOps=0;sampleFc=0;
+
+            var mm=Math.floor(elapsed/60),ss=Math.floor(elapsed%60);
+            et.textContent=(mm<10?'0':'')+mm+':'+(ss<10?'0':'')+ss;
+
+            if(now-lastTxtSw>5000){
+                txtI=(txtI+1)%runTxt.length;
+                ft.textContent=runTxt[txtI];lastTxtSw=now;
+            }
+
+            if(curFps<=baseFps*.1&&elapsed>3){done('帧率已降至基准的10%，测试结束');return}
+            if(curFps<=3&&elapsed>2){done();return}
+        }
+    }
+}
+
+/* ===== 启动 ===== */
+resize();
+idleLoop();
+</script>
+</body>
+</html>
