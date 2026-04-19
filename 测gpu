@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
+    <title>性能测试</title>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        html,body{width:100%;height:100%;overflow:hidden;background:#0a0a0a;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC",sans-serif;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none;-webkit-font-smoothing:antialiased}
+        .app{display:flex;flex-direction:column;height:100%;height:100dvh}
+        .hd{padding:14px 20px;padding-top:max(14px,env(safe-area-inset-top));display:flex;align-items:center;justify-content:space-between}
+        .hd-t{font-size:17px;font-weight:600;letter-spacing:-0.3px}
+        .dot{width:8px;height:8px;border-radius:50%;background:#333;transition:background .3s}
+        .ca{flex:1;min-height:0;position:relative}
+        .ca canvas{width:100%;height:100%;display:block}
+        .ca::after{content:'';position:absolute;bottom:0;left:0;right:0;height:32px;background:linear-gradient(transparent,#0a0a0a);pointer-events:none}
+        .dt{flex-shrink:0}
+        .fp{text-align:center;padding:2px 0 0}
+        .fv{font-size:64px;font-weight:800;line-height:1;letter-spacing:-4px;font-variant-numeric:tabular-nums;transition:color .2s}
+        .ft2{font-size:11px;color:#555;letter-spacing:3px;margin-top:2px}
+        .cb2{text-align:center;font-size:12px;color:#ff9f0a;padding:3px 0;display:none}
+        .ms{display:flex;justify-content:space-around;padding:10px 16px;border-top:1px solid #1a1a1a}
+        .m{text-align:center}
+        .mv{font-size:18px;font-weight:600;font-variant-numeric:tabular-nums}
+        .ml2{font-size:10px;color:#444;margin-top:3px}
+        .sb2{text-align:center;padding:6px 0 2px;display:none}
+        .sv2{font-size:52px;font-weight:800;line-height:1;letter-spacing:-3px;color:#ff3b30;font-variant-numeric:tabular-nums}
+        .st2{font-size:11px;color:#444;margin-top:4px}
+        .sr2{font-size:14px;color:#666;margin-top:4px;font-weight:500}
+        .df{display:flex;gap:8px;padding:0 20px;margin-bottom:10px}
+        .db{flex:1;height:36px;border:1px solid #2a2a2a;border-radius:8px;background:transparent;color:#666;font-size:13px;font-weight:500;cursor:pointer;-webkit-appearance:none;appearance:none;transition:all .15s}
+        .db.on{border-color:#ff3b30;color:#ff3b30;background:rgba(255,59,48,.08)}
+        .db:active{opacity:.5}
+        .bw{padding:0 20px 8px}
+        .bt2{width:100%;height:48px;border:none;border-radius:10px;font-size:15px;font-weight:600;color:#fff;cursor:pointer;-webkit-appearance:none;appearance:none}
+        .bt2:active{opacity:.55}
+        .bg{background:#ff3b30}
+        .bs{background:#2a2a2a}
+        .bt2:disabled{opacity:.2;pointer-events:none}
+        .ftx{padding:0 24px;padding-bottom:max(16px,env(safe-area-inset-bottom));text-align:center;font-size:12px;color:#333;line-height:1.5;min-height:36px;transition:color .3s}
+        .cg{color:#30d158}.cw{color:#ff9f0a}.cr{color:#ff3b30}.ci2{color:#555}
+    </style>
+</head>
+<body>
+<div class="app">
+    <div class="hd"><span class="hd-t">性能测试</span><div class="dot" id="dot"></div></div>
+    <div class="ca"><canvas id="cv"></canvas></div>
+    <div class="dt">
+        <div class="fp"><div class="fv ci2" id="fv">--</div><div class="ft2">FPS</div></div>
+        <div class="cb2" id="ch">校准基准帧率中...</div>
+        <div class="ms">
+            <div class="m"><div class="mv" id="el">-</div><div class="ml2">负载等级</div></div>
+            <div class="m"><div class="mv" id="et">00:00</div><div class="ml2">运行时间</div></div>
+            <div class="m"><div class="mv" id="ei">-</div><div class="ml2">迭代次数</div></div>
+        </div>
+    </div>
+    <div class="sb2" id="sb">
+        <div class="sv2" id="sv">0</div>
+        <div class="st2">性能分数</div>
+        <div class="sr2" id="srt"></div>
+    </div>
+    <div class="df" id="df">
+        <button class="db" onclick="pickDiff(0)">简单</button>
+        <button class="db on" onclick="pickDiff(1)">困难</button>
+        <button class="db" onclick="pickDiff(2)">地狱</button>
+    </div>
+    <div class="bw"><button class="bt2 bg" id="bt" onclick="tap()">开始测试</button></div>
+    <div class="ftx" id="ftx">选个难度，然后按开始</div>
+</div>
+
+<script>
+/* ===== 难度配置 ===== */
+const DIFFS = [
+    { name:'简单', iterMax:8000,  resMax:0.8, step:50,  mul:1.0 },
+    { name:'困难', iterMax:12000, resMax:1.0, step:75,  mul:1.5 },
+    { name:'地狱', iterMax:16000, resMax:1.5, step:100, mul:2.2 },
+];
+let diffIdx = 1;
+
+/* ===== 嘲讽文案 ===== */
+const taunts = [
+    "这帧率，PPT都比你流畅","你的手机是用蜡烛供电的吗","建议把手机放进冰箱再试一次",
+    "这块芯片是考古挖出来的吧","你的手机散热靠的是信仰吗","连计算器都跑不过，建议退烧",
+    "这性能，扫个码都费劲","你的GPU是在用算盘计算吗","测试过程中你的手机流下了热泪",
+    "这个分数，建议刻在墓碑上","你的手机刚才偷偷打了个120","把手机扔了换块砖头可能更快",
+    "你的帧率比乌龟爬还慢","测试结束，你的手机申请了工伤","这分数发出去能社死三次",
+    "你的手机在测试中经历了什么不敢细想","建议降级使用诺基亚1100","这个性能，打开设置都要转圈",
+    "你的GPU已经提离职了","这帧率看久了容易催眠","你的手机说它不想活了",
+    "测试完成，请为你的手机默哀三秒","这个分数建议不要让任何人知道",
+    "你的手机温度已经可以煎鸡蛋了","连你的WiFi路由器都看不下去了","你的手机刚才发了一条SOS",
+    "这性能跑个电子表都要掉帧","你的芯片是被降频到胎儿级别了吗","测试的时候你的手机在发抖，真的",
+    "用这个手机跑测试属于手机虐待","你的手机刚才写了一封遗书","这个分数拿出去会被笑出声的",
+    "你的GPU现在的工作态度比你还摆烂","你确定这不是一台暖手宝吗","这手机的性能主要靠你的想象力",
+    "测完了，你的手机需要看心理医生","建议直接用来当砖头，性能反而提升了",
+    "选了地狱难度又怎样，该不行还是不行","手机都被你玩出工伤了",
+    "你的手机在测试前和测试后已经不是同一台了","这分数就是对你手机的墓志铭",
+    "你的手机现在正在考虑报警","这性能放在十年前都算差的",
+];
+const runTxt = [
+    "你的手机在颤抖...","还能撑住吗？","GPU正在冒烟...","别心疼，继续跑",
+    "温度正在上升...","你的手机在求饶","散热已经摆烂了",
+    "坚持住，快了（并没有）","帧率开始不稳了哦","你的手机开始流汗了",
+    "GPU在疯狂挣扎","这时候后悔选这个难度已经晚了",
+];
+
+/* ===== DOM ===== */
+const $=id=>document.getElementById(id);
+const fv=$('fv'),dot=$('dot'),ch=$('ch'),df=$('df');
+const el=$('el'),et=$('et'),ei=$('ei');
+const sb=$('sb'),sv=$('sv'),srt=$('srt');
+const bt=$('bt'),ftx=$('ftx'),cv=$('cv');
+
+/* ===== WebGL2 ===== */
+let gl,prog,vao,uR,uI,uT;
+
+function initGL(){
+    gl=cv.getContext('webgl2',{antialias:false,powerPreference:'high-performance'});
+    if(!gl){ftx.textContent='你的浏览器不支持WebGL2，省得测了';bt.disabled=true;return false}
+    const vs=`#version 300 es
+    in vec2 a_p;
+    void main(){gl_Position=vec4(a_p,0,1);}`;
+    const fs=`#version 300 es
+    precision highp float;
+    uniform vec2 u_r;
+    uniform float u_i,u_t;
+    out vec4 o;
+    void main(){
+        vec2 uv=(gl_FragCoord.xy-.5*u_r)/min(u_r.x,u_r.y);
+        float t=u_t*.04;
+        vec2 c=vec2(-.745+sin(t)*.08,.186+cos(t*.7)*.08)+uv*(1.8+sin(t*.25)*.4);
+        vec2 z=vec2(0);float it=0.;
+        for(int n=0;n<16000;n++){
+            if(float(n)>=u_i)break;
+            float x2=z.x*z.x,y2=z.y*z.y;
+            if(x2+y2>4.)break;
+            z=vec2(x2-y2+c.x,2.*z.x*z.y+c.y);
+            it+=1.;
+        }
+        float f=it/max(u_i,1.);
+        vec3 col=mix(vec3(.04,.02,.06),vec3(.85,.12,.04),sqrt(f))+vec3(0.,.08,.18)*f*f;
+        o=vec4(max(col,vec3(.03,.02,.04)),1.);
+    }`;
+    function mk(tp,s){const sh=gl.createShader(tp);gl.shaderSource(sh,s);gl.compileShader(sh);return gl.getShaderParameter(sh,gl.COMPILE_STATUS)?sh:null}
+    const vsh=mk(gl.VERTEX_SHADER,vs),fsh=mk(gl.FRAGMENT_SHADER,fs);
+    if(!vsh||!fsh)return false;
+    prog=gl.createProgram();gl.attachShader(prog,vsh);gl.attachShader(prog,fsh);gl.linkProgram(prog);
+    if(!gl.getProgramParameter(prog,gl.LINK_STATUS))return false;
+    vao=gl.createVertexArray();gl.bindVertexArray(vao);
+    const b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);
+    gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]),gl.STATIC_DRAW);
+    const l=gl.getAttribLocation(prog,'a_p');gl.enableVertexAttribArray(l);gl.vertexAttribPointer(l,2,gl.FLOAT,false,0,0);
+    uR=gl.getUniformLocation(prog,'u_r');uI=gl.getUniformLocation(prog,'u_i');uT=gl.getUniformLocation(prog,'u_t');
+    return true;
+}
+
+function draw(iter,tm){
+    if(!gl)return;
+    gl.useProgram(prog);gl.bindVertexArray(vao);
+    gl.uniform2f(uR,cv.width,cv.height);
+    gl.uniform1f(uI,iter);gl.uniform1f(uT,tm);
+    gl.drawArrays(gl.TRIANGLES,0,6);
+}
+
+/* 根据当前缩放比例调整Canvas物理尺寸 */
+function resize(scale){
+    const w=Math.floor(cv.clientWidth*scale);
+    const h=Math.floor(cv.clientHeight*scale);
+    if(cv.width!==w||cv.height!==h){cv.width=w;cv.height=h;if(gl)gl.viewport(0,0,w,h)}
+}
+
+/* ===== 测试状态 ===== */
+let st='idle',baseFps=0,curFps=0;
+let level=1,maxLv=1,t0=0,testT0=0;
+let fc=0,lastFt=0,calN=0,calSum=0,fpsHist=[];
+let animId=null,txtI=0,lastTxtSw=0,idleId=null;
+
+/* 空闲动画 */
+function idleLoop(){
+    idleId=requestAnimationFrame(idleLoop);
+    if(st==='calibrating'||st==='testing')return;
+    resize(0.6);
+    draw(80,performance.now()/1000);
+}
+
+/* 难度选择 */
+function pickDiff(i){
+    if(st!=='idle'&&st!=='finished')return;
+    diffIdx=i;
+    document.querySelectorAll('.db').forEach((b,j)=>b.classList.toggle('on',j===i));
+}
+
+/* 按钮点击 */
+function tap(){
+    if(st==='idle'||st==='finished')go();else stop();
+}
+
+/* 开始测试 */
+function go(){
+    if(idleId){cancelAnimationFrame(idleId);idleId=null}
+    baseFps=0;curFps=0;level=1;maxLv=1;
+    calN=0;calSum=0;fpsHist=[];txtI=0;lastTxtSw=0;
+    st='calibrating';t0=performance.now();lastFt=t0;fc=0;
+
+    fv.textContent='--';fv.className='fv ci2';
+    el.textContent='-';et.textContent='00:00';ei.textContent='-';
+    sb.style.display='none';ch.style.display='block';
+    dot.style.background='#ff9f0a';
+    bt.textContent='停止测试';bt.className='bt2 bs';
+    ftx.textContent='正在校准基准帧率...';ftx.style.color='';
+    df.style.opacity='0.3';df.style.pointerEvents='none';
+
+    if(animId)cancelAnimationFrame(animId);
+    loop();
+}
+
+function stop(){done('手动停止了，看来是怕了')}
+
+/* 结束 */
+function done(msg){
+    st='finished';
+    if(animId){cancelAnimationFrame(animId);animId=null}
+    const dur=testT0>0?(performance.now()-testT0)/1000:0;
+    const d=DIFFS[diffIdx];
+    let score=Math.round(maxLv*dur*d.mul);
+    if(testT0===0)score=Math.max(0,Math.round(baseFps*1.5*d.mul));
+
+    sb.style.display='block';
+    numAnim(sv,score);
+    let rank;
+    if(score>=10000)rank='怪物级水平';
+    else if(score>=6000)rank='旗舰水平';
+    else if(score>=2500)rank='中高端水平';
+    else if(score>=800)rank='中端水平';
+    else if(score>=200)rank='入门水平';
+    else rank='电子垃圾水平';
+    srt.textContent=rank;
+
+    ch.style.display='none';dot.style.background='#ff3b30';
+    bt.textContent='重新测试';bt.className='bt2 bg';
+    ftx.textContent=msg||taunts[Math.floor(Math.random()*taunts.length)];
+    ftx.style.color='#555';
+    df.style.opacity='1';df.style.pointerEvents='auto';
+
+    /* 恢复低分辨率空闲 */
+    if(!idleId)idleLoop();
+}
+
+function numAnim(el,tgt){
+    let c=0;const step=Math.max(1,Math.ceil(tgt/25));
+    const iv=setInterval(()=>{c+=step;if(c>=tgt){c=tgt;clearInterval(iv)}el.textContent=c.toLocaleString()},25);
+}
+
+/* ===== 主循环 ===== */
+function loop(){
+    animId=requestAnimationFrame(loop);
+
+    const now=performance.now();
+    const d=DIFFS[diffIdx];
+    const elapsed=testT0>0?(now-testT0)/1000:0;
+
+    /* 计算当前缩放比例：校准阶段0.6，测试阶段从0.6渐增到resMax */
+    let curScale=0.6;
+    if(st==='testing'&&elapsed>0){
+        const ramp=Math.min(elapsed/30,1); // 30秒内线性升到最大
+        curScale=0.6+(d.resMax-0.6)*ramp;
+    }
+    resize(curScale);
+
+    fc++;
+
+    /* 每500ms采样FPS */
+    if(now-lastFt>=500){
+        curFps=Math.round(fc/((now-lastFt)/1000));
+        fc=0;lastFt=now;
+        fv.textContent=curFps;
+        if(curFps>=50)fv.className='fv cg';
+        else if(curFps>=25)fv.className='fv cw';
+        else fv.className='fv cr';
+
+        /* 校准 */
+        if(st==='calibrating'){
+            calN++;calSum+=curFps;
+            if(curFps<8&&calN>=2){baseFps=Math.round(calSum/calN);testT0=0;done();return}
+            if(calN>=6){
+                baseFps=Math.round(calSum/calN);
+                if(baseFps<15){testT0=0;done();return}
+                st='testing';testT0=performance.now();
+                ch.style.display='none';dot.style.background='#30d158';
+                ftx.textContent=runTxt[0];ftx.style.color='#444';lastTxtSw=now;
+            }
+        }
+
+        /* 测试中 */
+        if(st==='testing'){
+            fpsHist.push(curFps);
+            level=Math.floor(elapsed)+1;
+            if(level>maxLv)maxLv=level;
+
+            const iter=Math.min(level*d.step,d.iterMax);
+            el.textContent='Lv.'+level;
+            ei.textContent=iter;
+            const mm=Math.floor(elapsed/60),ss=Math.floor(elapsed%60);
+            et.textContent=String(mm).padStart(2,'0')+':'+String(ss).padStart(2,'0');
+
+            /* 显示当前分辨率缩放 */
+            const pct=Math.round(curScale*100);
+            el.textContent='Lv.'+level+' · '+pct+'%';
+
+            if(now-lastTxtSw>5000){
+                txtI=(txtI+1)%runTxt.length;
+                ftx.textContent=runTxt[txtI];lastTxtSw=now;
+            }
+
+            /* 帧率≤基准10% → 停止 */
+            if(curFps<=baseFps*0.1&&elapsed>3){done('帧率已降至基准的10%，测试结束');return}
+            /* 绝对兜底 */
+            if(curFps<=3&&elapsed>2){done();return}
+        }
+    }
+
+    /* 渲染 */
+    const tm=(now-t0)/1000;
+    const iter=(st==='calibrating')?60:Math.min(level*d.step,d.iterMax);
+    draw(iter,tm);
+}
+
+/* ===== 启动 ===== */
+if(initGL())idleLoop();
+</script>
+</body>
+</html>
