@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>WebGL 地狱性能测试</title>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        html,body{width:100%;height:100%;overflow:hidden;background:#000;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC",sans-serif}
+        .app{display:flex;flex-direction:column;height:100vh}
+        .hd{padding:15px 20px;display:flex;align-items:center;justify-content:space-between;background:rgba(0,0,0,0.8);backdrop-filter:blur(10px);z-index:100}
+        .hd-t{font-size:18px;font-weight:700}
+        .fps-box{text-align:right}
+        .fps-val{font-size:32px;font-weight:800;color:#0f0;font-variant-numeric:tabular-nums;text-shadow:0 0 10px #0f0}
+        .fps-val.med{color:#ff0;text-shadow:0 0 10px #ff0}
+        .fps-val.low{color:#f00;text-shadow:0 0 10px #f00}
+        .fps-lab{font-size:10px;color:#666;margin-top:-5px}
+        
+        .canvas-wrap{flex:1;position:relative;overflow:hidden}
+        canvas{display:block;width:100%;height:100%}
+        
+        .ctrl{padding:20px;background:#111;border-top:1px solid #222}
+        .info{display:flex;justify-content:space-around;margin-bottom:15px}
+        .info-item{text-align:center}
+        .info-val{font-size:24px;font-weight:700;color:#0af}
+        .info-lab{font-size:11px;color:#555;margin-top:3px}
+        
+        .btns{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:15px}
+        .btn{height:45px;border:1px solid #333;border-radius:8px;background:#1a1a1a;color:#888;font-size:13px;font-weight:600;cursor:pointer;transition:all 0.2s}
+        .btn:hover{border-color:#555;color:#aaa}
+        .btn:active{transform:scale(0.95)}
+        .btn.on{border-color:#0f0;background:rgba(0,255,0,0.1);color:#0f0;box-shadow:0 0 15px rgba(0,255,0,0.3)}
+        .btn.on::after{content:"✓";margin-left:3px}
+        .btn.hell{border-color:#f00;background:rgba(255,0,0,0.1);color:#f00}
+        .btn.hell.on::after{content:"💀";margin-left:3px}
+        
+        .main-btn{width:100%;height:50px;border:none;border-radius:10px;font-size:16px;font-weight:700;cursor:pointer;transition:all 0.2s}
+        .main-btn.start{background:linear-gradient(135deg,#f00,#c00);color:#fff;box-shadow:0 4px 20px rgba(255,0,0,0.4)}
+        .main-btn.stop{background:linear-gradient(135deg,#0a0,#080);color:#fff}
+        .main-btn:disabled{opacity:0.3;pointer-events:none}
+        
+        .warn{color:#f80;font-size:12px;text-align:center;margin-top:10px;min-height:20px}
+        
+        .overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.9);display:none;justify-content:center;align-items:center;z-index:1000;backdrop-filter:blur(5px)}
+        .overlay.show{display:flex}
+        .modal{background:#1a1a1a;padding:30px;border-radius:20px;border:2px solid #f00;max-width:350px;text-align:center;box-shadow:0 0 50px rgba(255,0,0,0.5)}
+        .modal-icon{font-size:50px;margin-bottom:15px}
+        .modal-t{font-size:22px;font-weight:800;color:#f00;margin-bottom:10px}
+        .modal-p{color:#888;font-size:14px;line-height:1.6;margin-bottom:25px}
+        .modal-btn{padding:12px 30px;border:none;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;margin:0 5px}
+        .modal-btn.yes{background:#f00;color:#fff}
+        .modal-btn.no{background:#333;color:#fff}
+        
+        .temp-bar{position:fixed;top:0;left:0;height:3px;background:linear-gradient(90deg,#0f0,#ff0,#f00);width:0%;transition:width 0.3s;z-index:101}
+    </style>
+</head>
+<body>
+    <div class="temp-bar" id="tempBar"></div>
+    
+    <div class="app">
+        <div class="hd">
+            <span class="hd-t">💀 GPU 极限测试</span>
+            <div class="fps-box">
+                <div class="fps-val" id="fpsVal">60</div>
+                <div class="fps-lab">FPS</div>
+            </div>
+        </div>
+        
+        <div class="canvas-wrap">
+            <canvas id="glCanvas"></canvas>
+        </div>
+        
+        <div class="ctrl">
+            <div class="info">
+                <div class="info-item">
+                    <div class="info-val" id="iterVal">0</div>
+                    <div class="info-lab">迭代深度</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-val" id="pixelVal">0</div>
+                    <div class="info-lab">像素负载</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-val" id="scoreVal">0</div>
+                    <div class="info-lab">压力指数</div>
+                </div>
+            </div>
+            
+            <div class="btns">
+                <button class="btn on" data-mode="0" onclick="setMode(0)">简单</button>
+                <button class="btn" data-mode="1" onclick="setMode(1)">困难 I</button>
+                <button class="btn" data-mode="2" onclick="setMode(2)">困难 II</button>
+                <button class="btn hell" data-mode="3" onclick="setMode(3)">毁灭</button>
+            </div>
+            
+            <button class="main-btn start" id="mainBtn" onclick="toggle()">开始极限测试</button>
+            <div class="warn" id="warn">简单模式：每秒+50迭代深度，养生测试</div>
+        </div>
+    </div>
+    
+    <div class="overlay" id="modal">
+        <div class="modal">
+            <div class="modal-icon">☢️</div>
+            <div class="modal-t">毁灭模式警告</div>
+            <div class="modal-p">此模式将释放 GPU 全部算力：<br>• 16000+次迭代深度<br>• 1.5x超采样渲染<br>• 实时光线追踪<br>• 多重分形叠加<br><br>可能导致：<br>✓ 设备瞬间升温<br>✓ 帧率暴跌至个位数<br>✓ 浏览器无响应</div>
+            <button class="modal-btn no" onclick="closeModal()">取消</button>
+            <button class="modal-btn yes" onclick="confirmHell()">确认毁灭</button>
+        </div>
+    </div>
+
+<script>
+// WebGL 上下文
+let gl, program, vao, uniforms = {};
+let canvas = document.getElementById('glCanvas');
+
+// 状态
+let isRunning = false;
+let mode = 0;
+let currentFps = 60;
+let frameCount = 0;
+let lastFpsTime = 0;
+let iteration = 50;
+let score = 0;
+let startTime = 0;
+let pixelCount = 0;
+let simpleAddTimer = 0;
+
+// 朱利亚集合 + 牛顿分形混合着色器
+const vsSource = `#version 300 es
+in vec2 a_position;
+void main() {
+    gl_Position = vec4(a_position, 0.0, 1.0);
+}`;
+
+const fsSource = `#version 300 es
+precision highp float;
+uniform vec2 u_resolution;
+uniform float u_time;
+uniform int u_iterations;
+uniform int u_mode;
+out vec4 fragColor;
+
+// 3D旋转矩阵
+mat3 rotateX(float theta) {
+    float c = cos(theta), s = sin(theta);
+    return mat3(1, 0, 0, 0, c, -s, 0, s, c);
+}
+
+mat3 rotateY(float theta) {
+    float c = cos(theta), s = sin(theta);
+    return mat3(c, 0, s, 0, 1, 0, -s, 0, c);
+}
+
+// 3D噪声
+float hash3D(vec3 p) {
+    p = vec3(dot(p, vec3(127.1, 311.7, 74.7)),
+             dot(p, vec3(269.5, 183.3, 246.1)),
+             dot(p, vec3(113.5, 271.9, 124.6)));
+    return fract(sin(dot(p, vec3(12.9898, 78.233, 45.164))) * 43758.5453);
+}
+
+float noise3D(vec3 p) {
+    vec3 i = floor(p);
+    vec3 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    
+    float n = mix(
+        mix(
+            mix(hash3D(i + vec3(0,0,0)), hash3D(i + vec3(1,0,0)), f.x),
+            mix(hash3D(i + vec3(0,1,0)), hash3D(i + vec3(1,1,0)), f.x),
+            f.y
+        ),
+        mix(
+            mix(hash3D(i + vec3(0,0,1)), hash3D(i + vec3(1,0,1)), f.x),
+            mix(hash3D(i + vec3(0,1,1)), hash3D(i + vec3(1,1,1)), f.x),
+            f.y
+        ),
+        f.z
+    );
+    return n;
+}
+
+// 球面坐标转换
+vec2 sphereUV(vec3 p) {
+    float u = atan(p.z, p.x) / (2.0 * 3.14159) + 0.5;
+    float v = asin(p.y) / 3.14159 + 0.5;
+    return vec2(u, v);
+}
+
+// 朱利亚集合 3D版
+float julia3D(vec3 pos, vec2 c, int maxIter) {
+    vec3 z = pos;
+    float dr = 1.0;
+    float r = 0.0;
+    
+    for(int i = 0; i < 5000; i++) {
+        if(i >= maxIter) break;
+        
+        r = length(z);
+        if(r > 2.0) break;
+        
+        // 球坐标转换
+        float theta = acos(z.z / r);
+        float phi = atan(z.y, z.x);
+        
+        // z = z^8 + c (超复杂次方)
+        dr = pow(r, 7.0) * 8.0 * dr + 1.0;
+        
+        float zr = pow(r, 8.0);
+        theta = theta * 8.0;
+        phi = phi * 8.0;
+        
+        z = zr * vec3(sin(theta) * cos(phi), sin(phi) * sin(theta), cos(theta));
+        z += vec3(c.x, c.y, 0.0);
+    }
+    
+    return 0.5 * log(r) * r / dr;
+}
+
+// 牛顿分形
+vec3 newtonFractal(vec2 uv, int iter) {
+    vec2 z = uv * 2.0;
+    vec2 roots[3];
+    roots[0] = vec2(1.0, 0.0);
+    roots[1] = vec2(-0.5, 0.866);
+    roots[2] = vec2(-0.5, -0.866);
+    
+    vec3 col = vec3(0);
+    
+    for(int i = 0; i < 5000; i++) {
+        if(i >= iter / 3) break;
+        
+        // z^3 - 1 = 0的牛顿迭代
+        vec2 z2 = vec2(z.x*z.x - z.y*z.y, 2.0*z.x*z.y);
+        vec2 z3 = vec2(z2.x*z.x - z2.y*z.y, z2.x*z.y + z2.y*z.x);
+        
+        vec2 f = z3 - vec2(1.0, 0.0);
+        vec2 df = 3.0 * z2;
+        
+        float denom = df.x*df.x + df.y*df.y;
+        z = z - vec2((f.x*df.x + f.y*df.y)/denom, (f.y*df.x - f.x*df.y)/denom);
+    }
+    
+    // 计算到三个根的距离
+    float d0 = length(z - roots[0]);
+    float d1 = length(z - roots[1]);
+    float d2 = length(z - roots[2]);
+    
+    if(d0 < d1 && d0 < d2) col = vec3(0.8, 0.2, 0.2);
+    else if(d1 < d2) col = vec3(0.2, 0.8, 0.2);
+    else col = vec3(0.2, 0.2, 0.8);
+    
+    return col;
+}
+
+void main() {
+    vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution) / min(u_resolution.x, u_resolution.y);
+    
+    float t = u_time * 0.2;
+    
+    // 动态相机位置
+    vec3 ro = vec3(cos(t) * 3.0, sin(t * 0.7) * 2.0, sin(t) * 3.0);
+    vec3 ta = vec3(0, 0, 0);
+    vec3 ww = normalize(ta - ro);
+    vec3 uu = normalize(cross(vec3(0, 1, 0), ww));
+    vec3 vv = cross(ww, uu);
+    vec3 rd = normalize(uv.x * uu + uv.y * vv + 1.5 * ww);
+    
+    // 旋转整个场景
+    mat3 rot = rotateX(t * 0.3) * rotateY(t * 0.5);
+    rd = rot * rd;
+    ro = rot * ro;
+    
+    vec3 col = vec3(0);
+    
+    if(u_mode == 0) {
+        // 简单模式：2D牛顿分形
+        col = newtonFractal(uv * 1.5, u_iterations);
+        col *= 0.8 + 0.2 * sin(t + uv.x * 3.0);
+    } else {
+        // 3D光线步进
+        float t0 = 0.0;
+        float maxDist = 10.0;
+        float eps = 0.001;
+        
+        vec2 c = vec2(-0.8 + 0.1 * cos(t), 0.156 + 0.1 * sin(t));
+        
+        for(int steps = 0; steps < 200; steps++) {
+            if(t0 > maxDist) break;
+            
+            vec3 p = ro + rd * t0;
+            float d = julia3D(p, c, u_iterations);
+            
+            if(d < eps) {
+                // 着色
+                vec3 n = normalize(vec3(
+                    julia3D(p + vec3(eps, 0, 0), c, u_iterations) - d,
+                    julia3D(p + vec3(0, eps, 0), c, u_iterations) - d,
+                    julia3D(p + vec3(0, 0, eps), c, u_iterations) - d
+                ));
+                
+                // 光照
+                vec3 light = normalize(vec3(1, 2, 3));
+                float diff = max(dot(n, light), 0.0);
+                float spec = pow(max(dot(reflect(-light, n), -rd), 0.0), 32.0);
+                
+                // 基于迭代次数的颜色
+                float hue = float(u_iterations) / 20000.0;
+                vec3 baseCol = 0.5 + 0.5 * cos(vec3(0, 0.33, 0.66) * 6.28 + hue * 6.28 + t);
+                
+                col = baseCol * (0.3 + 0.7 * diff) + vec3(spec);
+                
+                // 环境光遮蔽近似
+                float ao = 1.0 - float(steps) / 100.0;
+                col *= ao;
+                
+                break;
+            }
+            
+            t0 += d;
+        }
+        
+        // 背景
+        if(t0 >= maxDist) {
+            col = vec3(0.02, 0.02, 0.05);
+            // 星空
+            vec3 starPos = ro + rd * 50.0;
+            float n = noise3D(starPos * 0.1);
+            if(n > 0.95) col += vec3(n);
+        }
+    }
+    
+    // 辉光效果
+    col = pow(col, vec3(0.8));
+    col *= 1.2;
+    
+    // 扫描线
+    col *= 0.95 + 0.05 * sin(uv.y * 800.0 + t * 10.0);
+    
+    fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+}`;
+
+// 初始化 WebGL
+function initGL() {
+    gl = canvas.getContext('webgl2', {
+        antialias: false,
+        powerPreference: 'high-performance',
+        alpha: false
+    });
+    
+    if(!gl) {
+        document.getElementById('warn').textContent = '你的设备不支持 WebGL2';
+        document.getElementById('mainBtn').disabled = true;
+        return false;
+    }
+    
+    function createShader(type, source) {
+        const shader = gl.createShader(type);
+        gl.shaderSource(shader, source);
+        gl.compileShader(shader);
+        if(!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+            console.error('Shader error:', gl.getShaderInfoLog(shader));
+            return null;
+        }
+        return shader;
+    }
+    
+    const vs = createShader(gl.VERTEX_SHADER, vsSource);
+    const fs = createShader(gl.FRAGMENT_SHADER, fsSource);
+    
+    if(!vs || !fs) return false;
+    
+    program = gl.createProgram();
+    gl.attachShader(program, vs);
+    gl.attachShader(program, fs);
+    gl.linkProgram(program);
+    
+    if(!gl.getProgramParameter(program, gl.LINK_STATUS)) return false;
+    
+    vao = gl.createVertexArray();
+    gl.bindVertexArray(vao);
+    
+    const buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+        -1, -1, 1, -1, -1, 1,
+        -1, 1, 1, -1, 1, 1
+    ]), gl.STATIC_DRAW);
+    
+    const loc = gl.getAttribLocation(program, 'a_position');
+    gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    
+    uniforms.resolution = gl.getUniformLocation(program, 'u_resolution');
+    uniforms.time = gl.getUniformLocation(program, 'u_time');
+    uniforms.iterations = gl.getUniformLocation(program, 'u_iterations');
+    uniforms.mode = gl.getUniformLocation(program, 'u_mode');
+    
+    return true;
+}
+
+function resize() {
+    const dpr = mode === 3 ? 1.5 : (mode === 2 ? 1.0 : (mode === 1 ? 0.8 : 0.5));
+    const w = Math.floor(canvas.clientWidth * dpr);
+    const h = Math.floor(canvas.clientHeight * dpr);
+    
+    if(canvas.width !== w || canvas.height !== h) {
+        canvas.width = w;
+        canvas.height = h;
+        gl.viewport(0, 0, w, h);
+    }
+    pixelCount = w * h;
+}
+
+function render(time) {
+    resize();
+    gl.useProgram(program);
+    gl.bindVertexArray(vao);
+    gl.uniform2f(uniforms.resolution, canvas.width, canvas.height);
+    gl.uniform1f(uniforms.time, time * 0.001);
+    gl.uniform1i(uniforms.iterations, iteration);
+    gl.uniform1i(uniforms.mode, mode);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+}
+
+function setMode(m) {
+    if(isRunning) return;
+    mode = m;
+    document.querySelectorAll('.btn').forEach(b => {
+        b.classList.remove('on');
+        if(parseInt(b.dataset.mode) === m) b.classList.add('on');
+    });
+    
+    const texts = [
+        '简单模式：2D牛顿分形，每秒+50迭代',
+        '困难 I：3D朱利亚集合，8000次迭代', 
+        '困难 II：光线追踪+分形，12000次迭代',
+        '毁灭模式：超采样+实时光追，16000次迭代'
+    ];
+    document.getElementById('warn').textContent = texts[m];
+    iteration = m === 0 ? 50 : (m === 1 ? 8000 : (m === 2 ? 12000 : 16000));
+}
+
+function toggle() {
+    if(isRunning) stop();
+    else if(mode === 3) document.getElementById('modal').classList.add('show');
+    else start();
+}
+
+function start() {
+    isRunning = true;
+    startTime = performance.now();
+    lastFpsTime = startTime;
+    frameCount = 0;
+    score = 0;
+    simpleAddTimer = 0;
+    
+    if(mode === 0) iteration = 50;
+    else if(mode === 1) iteration = 8000;
+    else if(mode === 2) iteration = 12000;
+    else iteration = 16000;
+    
+    document.getElementById('mainBtn').textContent = '停止测试';
+    document.getElementById('mainBtn').className = 'main-btn stop';
+    document.getElementById('warn').textContent = mode === 0 ? '简单模式运行中...' : 'GPU 极限压榨中...';
+    
+    loop();
+}
+
+function stop() {
+    isRunning = false;
+    document.getElementById('mainBtn').textContent = '开始极限测试';
+    document.getElementById('mainBtn').className = 'main-btn start';
+    document.getElementById('warn').textContent = `测试结束！压力指数: ${Math.floor(score).toLocaleString()}`;
+}
+
+function loop() {
+    if(!isRunning) return;
+    const now = performance.now();
+    
+    render(now);
+    
+    frameCount++;
+    if(now - lastFpsTime >= 500) {
+        currentFps = Math.round(frameCount / ((now - lastFpsTime) / 1000));
+        frameCount = 0;
+        lastFpsTime = now;
+        
+        const fpsEl = document.getElementById('fpsVal');
+        fpsEl.textContent = currentFps;
+        fpsEl.className = 'fps-val' + (currentFps >= 50 ? '' : (currentFps >= 25 ? ' med' : ' low'));
+        
+        if(mode === 0) {
+            simpleAddTimer += 0.5;
+            if(simpleAddTimer >= 1) {
+                iteration += 50;
+                simpleAddTimer = 0;
+            }
+        } else {
+            if(currentFps > 30 && iteration < 20000) {
+                iteration += mode === 3 ? 500 : 200;
+            }
+        }
+        
+        score += currentFps * (iteration / 1000);
+        document.getElementById('iterVal').textContent = iteration.toLocaleString();
+        document.getElementById('pixelVal').textContent = (pixelCount / 1000000).toFixed(2) + 'M';
+        document.getElementById('scoreVal').textContent = Math.floor(score).toLocaleString();
+        
+        const temp = Math.min(100, iteration / 20000 * 100);
+        document.getElementById('tempBar').style.width = temp + '%';
+    }
+    requestAnimationFrame(loop);
+}
+
+function closeModal() {
+    document.getElementById('modal').classList.remove('show');
+}
+
+function confirmHell() {
+    closeModal();
+    start();
+}
+
+if(initGL()) {
+    resize();
+    render(0);
+}
+</script>
+</body>
+</html>
