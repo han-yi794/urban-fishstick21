@@ -1,0 +1,1180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>毒蘑菇 · GPU 性能测试</title>
+<style>
+  /* ── MD3 Design Tokens ── */
+  :root {
+    --md-sys-color-primary: #9C27B0;
+    --md-sys-color-on-primary: #fff;
+    --md-sys-color-primary-container: #F3E5F5;
+    --md-sys-color-on-primary-container: #4A148C;
+    --md-sys-color-secondary: #7B1FA2;
+    --md-sys-color-tertiary: #E91E63;
+    --md-sys-color-surface: #0D0D0D;
+    --md-sys-color-surface-variant: #1A1A2E;
+    --md-sys-color-on-surface: #E8E0EC;
+    --md-sys-color-on-surface-variant: #9E9EAE;
+    --md-sys-color-outline: #2D2D4E;
+    --md-sys-color-outline-variant: #1E1E3A;
+    --md-sys-color-error: #CF6679;
+    --md-sys-color-success: #4CAF50;
+    --md-sys-color-warning: #FF9800;
+
+    --md-elevation-1: 0 1px 2px rgba(0,0,0,.3), 0 1px 3px 1px rgba(0,0,0,.15);
+    --md-elevation-2: 0 1px 2px rgba(0,0,0,.3), 0 2px 6px 2px rgba(0,0,0,.15);
+    --md-elevation-3: 0 4px 8px 3px rgba(0,0,0,.15), 0 1px 3px rgba(0,0,0,.3);
+
+    --md-shape-corner-xs: 4px;
+    --md-shape-corner-sm: 8px;
+    --md-shape-corner-md: 12px;
+    --md-shape-corner-lg: 16px;
+    --md-shape-corner-xl: 28px;
+    --md-shape-corner-full: 50px;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Google Sans', 'Noto Sans SC', system-ui, sans-serif;
+    background: var(--md-sys-color-surface);
+    color: var(--md-sys-color-on-surface);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px 48px;
+    gap: 20px;
+    overflow-x: hidden;
+  }
+
+  /* ── Top App Bar ── */
+  .top-app-bar {
+    width: 100%;
+    max-width: 900px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 0 4px;
+  }
+  .top-app-bar .icon-badge {
+    width: 40px; height: 40px;
+    background: linear-gradient(135deg, var(--md-sys-color-primary), var(--md-sys-color-tertiary));
+    border-radius: var(--md-shape-corner-md);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px;
+    box-shadow: var(--md-elevation-2);
+    flex-shrink: 0;
+  }
+  .top-app-bar h1 {
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -.3px;
+    color: var(--md-sys-color-on-surface);
+  }
+  .top-app-bar .subtitle {
+    font-size: 12px;
+    color: var(--md-sys-color-on-surface-variant);
+    margin-top: 2px;
+  }
+  .top-app-bar .spacer { flex: 1; }
+  .chip-warn {
+    background: rgba(207, 102, 121, .12);
+    border: 1px solid rgba(207, 102, 121, .3);
+    color: var(--md-sys-color-error);
+    border-radius: var(--md-shape-corner-full);
+    padding: 4px 12px;
+    font-size: 11px;
+    font-weight: 500;
+    display: flex; align-items: center; gap: 5px;
+  }
+
+  /* ── Canvas Card ── */
+  .canvas-card {
+    width: 100%;
+    max-width: 900px;
+    border-radius: var(--md-shape-corner-xl);
+    background: var(--md-sys-color-surface-variant);
+    border: 1px solid var(--md-sys-color-outline);
+    overflow: hidden;
+    position: relative;
+    aspect-ratio: 16/9;
+    box-shadow: var(--md-elevation-3);
+  }
+  #glCanvas {
+    width: 100%; height: 100%;
+    display: block;
+    border-radius: var(--md-shape-corner-xl);
+  }
+  .canvas-overlay {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 16px;
+    background: rgba(13, 13, 13, .85);
+    backdrop-filter: blur(8px);
+    border-radius: var(--md-shape-corner-xl);
+    transition: opacity .4s ease;
+    z-index: 10;
+  }
+  .canvas-overlay.hidden { opacity: 0; pointer-events: none; }
+  .overlay-icon { font-size: 56px; line-height: 1; }
+  .overlay-title { font-size: 20px; font-weight: 600; }
+  .overlay-sub {
+    font-size: 13px; color: var(--md-sys-color-on-surface-variant);
+    text-align: center; max-width: 340px; line-height: 1.6;
+  }
+
+  /* HUD inside canvas */
+  .canvas-hud {
+    position: absolute; top: 16px; left: 16px;
+    display: flex; flex-direction: column; gap: 6px;
+    z-index: 5; pointer-events: none;
+  }
+  .hud-chip {
+    background: rgba(13,13,13,.72);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: var(--md-shape-corner-full);
+    padding: 4px 12px;
+    font-size: 12px; font-weight: 600;
+    display: flex; align-items: center; gap: 6px;
+    color: #fff;
+    transition: background .3s;
+  }
+  .hud-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--md-sys-color-success);
+    box-shadow: 0 0 6px var(--md-sys-color-success);
+    animation: pulse 1.4s infinite;
+  }
+  .hud-dot.warn { background: var(--md-sys-color-warning); box-shadow: 0 0 6px var(--md-sys-color-warning); }
+  .hud-dot.danger { background: var(--md-sys-color-error); box-shadow: 0 0 6px var(--md-sys-color-error); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+  .canvas-hud-right {
+    position: absolute; top: 16px; right: 16px;
+    display: flex; flex-direction: column; gap: 6px; align-items: flex-end;
+    z-index: 5; pointer-events: none;
+  }
+
+  /* ── Controls Row ── */
+  .controls-row {
+    width: 100%; max-width: 900px;
+    display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+  }
+
+  /* MD3 Filled Button */
+  .btn-filled {
+    background: linear-gradient(135deg, var(--md-sys-color-primary), var(--md-sys-color-secondary));
+    color: var(--md-sys-color-on-primary);
+    border: none; border-radius: var(--md-shape-corner-full);
+    padding: 10px 24px;
+    font-size: 14px; font-weight: 600;
+    cursor: pointer; letter-spacing: .3px;
+    display: flex; align-items: center; gap: 8px;
+    transition: filter .2s, transform .1s, box-shadow .2s;
+    box-shadow: var(--md-elevation-1);
+    position: relative; overflow: hidden;
+  }
+  .btn-filled:hover { filter: brightness(1.15); box-shadow: var(--md-elevation-2); }
+  .btn-filled:active { transform: scale(.97); }
+  .btn-filled:disabled { opacity: .38; pointer-events: none; }
+
+  /* MD3 Tonal Button */
+  .btn-tonal {
+    background: rgba(156, 39, 176, .15);
+    color: #CE93D8;
+    border: 1px solid rgba(156,39,176,.25);
+    border-radius: var(--md-shape-corner-full);
+    padding: 10px 20px;
+    font-size: 14px; font-weight: 500;
+    cursor: pointer;
+    display: flex; align-items: center; gap: 8px;
+    transition: background .2s, transform .1s;
+  }
+  .btn-tonal:hover { background: rgba(156, 39, 176, .25); }
+  .btn-tonal:active { transform: scale(.97); }
+  .btn-tonal:disabled { opacity: .38; pointer-events: none; }
+
+  .spacer { flex: 1; }
+
+  /* Preset Chips */
+  .preset-group {
+    display: flex; gap: 8px; align-items: center;
+    flex-wrap: wrap;
+  }
+  .preset-label { font-size: 12px; color: var(--md-sys-color-on-surface-variant); }
+  .preset-chip {
+    background: var(--md-sys-color-outline-variant);
+    color: var(--md-sys-color-on-surface-variant);
+    border: 1px solid var(--md-sys-color-outline);
+    border-radius: var(--md-shape-corner-full);
+    padding: 6px 14px; font-size: 12px; font-weight: 500;
+    cursor: pointer; transition: all .2s;
+  }
+  .preset-chip:hover { background: rgba(156,39,176,.2); color: #CE93D8; border-color: var(--md-sys-color-primary); }
+  .preset-chip.active {
+    background: rgba(156,39,176,.25);
+    color: #CE93D8;
+    border-color: var(--md-sys-color-primary);
+  }
+
+  /* ── Metrics Grid ── */
+  .metrics-grid {
+    width: 100%; max-width: 900px;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+  }
+  @media (max-width: 600px) { .metrics-grid { grid-template-columns: repeat(2, 1fr); } }
+
+  .metric-card {
+    background: var(--md-sys-color-surface-variant);
+    border: 1px solid var(--md-sys-color-outline);
+    border-radius: var(--md-shape-corner-lg);
+    padding: 16px;
+    display: flex; flex-direction: column; gap: 6px;
+    transition: border-color .3s;
+    position: relative; overflow: hidden;
+  }
+  .metric-card::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: var(--card-accent, var(--md-sys-color-primary));
+    opacity: 0; transition: opacity .3s;
+    border-radius: 2px 2px 0 0;
+  }
+  .metric-card.active::before { opacity: 1; }
+  .metric-card.active { border-color: rgba(156,39,176,.4); }
+
+  .metric-label {
+    font-size: 11px; font-weight: 500;
+    color: var(--md-sys-color-on-surface-variant);
+    letter-spacing: .5px; text-transform: uppercase;
+    display: flex; align-items: center; gap: 5px;
+  }
+  .metric-value {
+    font-size: 28px; font-weight: 700; letter-spacing: -1px;
+    color: var(--md-sys-color-on-surface);
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+  }
+  .metric-value span { font-size: 13px; font-weight: 400; color: var(--md-sys-color-on-surface-variant); margin-left: 2px; }
+  .metric-sub { font-size: 11px; color: var(--md-sys-color-on-surface-variant); }
+
+  /* ── Chart Card ── */
+  .chart-card {
+    width: 100%; max-width: 900px;
+    background: var(--md-sys-color-surface-variant);
+    border: 1px solid var(--md-sys-color-outline);
+    border-radius: var(--md-shape-corner-xl);
+    padding: 20px 20px 16px;
+  }
+  .chart-header {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 14px;
+  }
+  .chart-title { font-size: 14px; font-weight: 600; }
+  .chart-badge {
+    background: rgba(156,39,176,.15); color: #CE93D8;
+    border-radius: var(--md-shape-corner-full);
+    padding: 2px 10px; font-size: 11px;
+  }
+  #fpsChart {
+    width: 100%; height: 80px;
+    border-radius: var(--md-shape-corner-sm);
+  }
+  .chart-axis {
+    display: flex; justify-content: space-between;
+    font-size: 10px; color: var(--md-sys-color-on-surface-variant);
+    margin-top: 4px; padding: 0 2px;
+  }
+
+  /* ── Stats Row ── */
+  .stats-row {
+    width: 100%; max-width: 900px;
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  @media (max-width: 500px) { .stats-row { grid-template-columns: 1fr; } }
+
+  .stat-card {
+    background: var(--md-sys-color-surface-variant);
+    border: 1px solid var(--md-sys-color-outline);
+    border-radius: var(--md-shape-corner-lg);
+    padding: 16px;
+  }
+  .stat-card-title {
+    font-size: 12px; font-weight: 600;
+    color: var(--md-sys-color-on-surface-variant);
+    margin-bottom: 12px;
+    text-transform: uppercase; letter-spacing: .5px;
+  }
+  .stat-rows { display: flex; flex-direction: column; gap: 8px; }
+  .stat-row-item {
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .stat-key { font-size: 12px; color: var(--md-sys-color-on-surface-variant); }
+  .stat-val { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  /* Progress bar */
+  .progress-track {
+    width: 100%; height: 4px;
+    background: var(--md-sys-color-outline);
+    border-radius: 2px; overflow: hidden;
+    margin-top: 4px;
+  }
+  .progress-fill {
+    height: 100%; border-radius: 2px;
+    background: linear-gradient(90deg, var(--md-sys-color-primary), var(--md-sys-color-tertiary));
+    transition: width .5s ease;
+  }
+
+  /* Score Card */
+  .score-card {
+    width: 100%; max-width: 900px;
+    background: linear-gradient(135deg, rgba(74,20,140,.25), rgba(233,30,99,.15));
+    border: 1px solid rgba(156,39,176,.35);
+    border-radius: var(--md-shape-corner-xl);
+    padding: 24px;
+    display: flex; align-items: center; gap: 20px;
+    transition: all .5s ease;
+  }
+  .score-ring {
+    position: relative; width: 80px; height: 80px; flex-shrink: 0;
+  }
+  .score-ring svg { width: 80px; height: 80px; transform: rotate(-90deg); }
+  .score-ring .ring-bg { stroke: rgba(255,255,255,.08); fill: none; stroke-width: 7; }
+  .score-ring .ring-fill {
+    fill: none; stroke-width: 7;
+    stroke: url(#scoreGrad);
+    stroke-linecap: round;
+    stroke-dasharray: 220;
+    stroke-dashoffset: 220;
+    transition: stroke-dashoffset 1.2s cubic-bezier(.4,0,.2,1);
+  }
+  .score-num {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    font-size: 20px; font-weight: 800; line-height: 1;
+    color: var(--md-sys-color-on-surface);
+  }
+  .score-num small { font-size: 9px; font-weight: 400; color: var(--md-sys-color-on-surface-variant); margin-top: 1px; }
+
+  .score-body { flex: 1; }
+  .score-title { font-size: 18px; font-weight: 700; }
+  .score-grade {
+    display: inline-flex; align-items: center; gap: 6px;
+    margin-top: 4px;
+    font-size: 13px; color: var(--md-sys-color-on-surface-variant);
+  }
+  .grade-badge {
+    padding: 2px 10px; border-radius: var(--md-shape-corner-full);
+    font-size: 12px; font-weight: 700;
+    background: rgba(156,39,176,.2); color: #CE93D8;
+    border: 1px solid rgba(156,39,176,.35);
+  }
+  .score-tip { font-size: 12px; color: var(--md-sys-color-on-surface-variant); margin-top: 8px; line-height: 1.6; }
+
+  /* Snackbar */
+  .snackbar {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px);
+    background: #2D2D4E; color: #E8E0EC;
+    border-radius: var(--md-shape-corner-sm);
+    padding: 12px 20px; font-size: 13px;
+    box-shadow: var(--md-elevation-3);
+    transition: transform .35s cubic-bezier(.4,0,.2,1);
+    z-index: 100; white-space: nowrap;
+  }
+  .snackbar.show { transform: translateX(-50%) translateY(0); }
+
+  /* Divider */
+  .divider { width: 100%; max-width: 900px; height: 1px; background: var(--md-sys-color-outline-variant); }
+
+  /* Footer */
+  .footer { font-size: 11px; color: var(--md-sys-color-on-surface-variant); text-align: center; }
+</style>
+</head>
+<body>
+
+<!-- SVG Gradient defs -->
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <linearGradient id="scoreGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#9C27B0"/>
+      <stop offset="100%" stop-color="#E91E63"/>
+    </linearGradient>
+  </defs>
+</svg>
+
+<!-- Top App Bar -->
+<div class="top-app-bar">
+  <div class="icon-badge">🍄</div>
+  <div>
+    <h1>毒蘑菇 · GPU 性能测试</h1>
+    <div class="subtitle">Volume Shader Benchmark — WebGL Ray Marching Edition</div>
+  </div>
+  <div class="spacer"></div>
+  <div class="chip-warn">⚠️ 低配设备慎用</div>
+</div>
+
+<!-- Canvas Card -->
+<div class="canvas-card">
+  <canvas id="glCanvas"></canvas>
+
+  <!-- HUD Left -->
+  <div class="canvas-hud" id="hud" style="display:none">
+    <div class="hud-chip">
+      <div class="hud-dot" id="hudDot"></div>
+      <span id="hudFps">-- FPS</span>
+    </div>
+    <div class="hud-chip" style="font-size:11px; font-weight:400">
+      <span id="hudFrame">帧时 -- ms</span>
+    </div>
+  </div>
+
+  <!-- HUD Right -->
+  <div class="canvas-hud-right" id="hudRight" style="display:none">
+    <div class="hud-chip" style="font-size:11px">🔥 <span id="hudLoad">负载 --%</span></div>
+    <div class="hud-chip" style="font-size:11px">⏱ <span id="hudTime">0s</span></div>
+  </div>
+
+  <!-- Start Overlay -->
+  <div class="canvas-overlay" id="overlay">
+    <div class="overlay-icon">🍄</div>
+    <div class="overlay-title">GPU 体积着色器压力测试</div>
+    <div class="overlay-sub">将使用 WebGL 运行 Ray Marching 分形渲染，持续满载 GPU。低配设备可能发烫或卡顿，请谨慎操作。</div>
+    <button class="btn-filled" id="startBtn">▶ 开始测试</button>
+  </div>
+</div>
+
+<!-- Controls Row -->
+<div class="controls-row">
+  <div class="preset-group">
+    <span class="preset-label">强度：</span>
+    <button class="preset-chip" data-preset="1">轻度</button>
+    <button class="preset-chip active" data-preset="2">标准</button>
+    <button class="preset-chip" data-preset="3">重度</button>
+    <button class="preset-chip" data-preset="4">地狱</button>
+  </div>
+  <div class="spacer"></div>
+  <button class="btn-tonal" id="pauseBtn" disabled>⏸ 暂停</button>
+  <button class="btn-tonal" id="stopBtn" disabled>⏹ 停止</button>
+  <button class="btn-filled" id="exportBtn" disabled>📋 导出报告</button>
+</div>
+
+<!-- Metrics Grid -->
+<div class="metrics-grid">
+  <div class="metric-card" id="cardFps" style="--card-accent:#9C27B0">
+    <div class="metric-label">🎯 当前帧率</div>
+    <div class="metric-value" id="valFps">--<span>FPS</span></div>
+    <div class="metric-sub" id="subFps">等待测试</div>
+  </div>
+  <div class="metric-card" id="cardAvg" style="--card-accent:#E91E63">
+    <div class="metric-label">📊 平均帧率</div>
+    <div class="metric-value" id="valAvg">--<span>FPS</span></div>
+    <div class="metric-sub" id="subAvg">等待测试</div>
+  </div>
+  <div class="metric-card" id="cardP1" style="--card-accent:#FF9800">
+    <div class="metric-label">📉 1% Low</div>
+    <div class="metric-value" id="valP1">--<span>FPS</span></div>
+    <div class="metric-sub">低帧率百分位</div>
+  </div>
+  <div class="metric-card" id="cardFrame" style="--card-accent:#4CAF50">
+    <div class="metric-label">⏱ 帧时间</div>
+    <div class="metric-value" id="valFrame">--<span>ms</span></div>
+    <div class="metric-sub" id="subFrame">帧间隔</div>
+  </div>
+</div>
+
+<!-- FPS Chart -->
+<div class="chart-card">
+  <div class="chart-header">
+    <div class="chart-title">帧率历史曲线</div>
+    <div class="chart-badge" id="chartStatus">等待测试</div>
+    <div class="spacer"></div>
+    <div style="font-size:11px;color:var(--md-sys-color-on-surface-variant)">最近 120 帧</div>
+  </div>
+  <canvas id="fpsChart"></canvas>
+  <div class="chart-axis">
+    <span>120f 前</span><span>90f</span><span>60f</span><span>30f</span><span>当前</span>
+  </div>
+</div>
+
+<!-- Stats Row -->
+<div class="stats-row">
+  <div class="stat-card">
+    <div class="stat-card-title">测试统计</div>
+    <div class="stat-rows">
+      <div class="stat-row-item">
+        <span class="stat-key">测试时长</span>
+        <span class="stat-val" id="statDuration">--</span>
+      </div>
+      <div class="stat-row-item">
+        <span class="stat-key">总帧数</span>
+        <span class="stat-val" id="statFrames">--</span>
+      </div>
+      <div class="stat-row-item">
+        <span class="stat-key">最高帧率</span>
+        <span class="stat-val" id="statMax">--</span>
+      </div>
+      <div class="stat-row-item">
+        <span class="stat-key">最低帧率</span>
+        <span class="stat-val" id="statMin">--</span>
+      </div>
+      <div class="stat-row-item">
+        <span class="stat-key">卡顿次数 (&lt;20fps)</span>
+        <span class="stat-val" id="statStutter" style="color:var(--md-sys-color-error)">--</span>
+      </div>
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-card-title">设备信息</div>
+    <div class="stat-rows">
+      <div class="stat-row-item">
+        <span class="stat-key">渲染器</span>
+        <span class="stat-val" id="infoRenderer" style="font-size:11px;text-align:right;max-width:180px;word-break:break-all">--</span>
+      </div>
+      <div class="stat-row-item">
+        <span class="stat-key">WebGL 版本</span>
+        <span class="stat-val" id="infoWebgl">--</span>
+      </div>
+      <div class="stat-row-item">
+        <span class="stat-key">着色器强度</span>
+        <span class="stat-val" id="infoPreset">标准 (×2)</span>
+      </div>
+      <div class="stat-row-item">
+        <span class="stat-key">分辨率</span>
+        <span class="stat-val" id="infoRes">--</span>
+      </div>
+      <div class="stat-row-item">
+        <span class="stat-key">平台</span>
+        <span class="stat-val" id="infoPlatform" style="font-size:11px">--</span>
+      </div>
+    </div>
+    <!-- Load bar -->
+    <div style="margin-top:12px">
+      <div class="stat-row-item" style="margin-bottom:5px">
+        <span class="stat-key">GPU 负载估算</span>
+        <span class="stat-val" id="loadPct">--%</span>
+      </div>
+      <div class="progress-track"><div class="progress-fill" id="loadBar" style="width:0%"></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- Score Card -->
+<div class="score-card" id="scoreCard">
+  <div class="score-ring">
+    <svg viewBox="0 0 80 80">
+      <circle class="ring-bg" cx="40" cy="40" r="35"/>
+      <circle class="ring-fill" id="scoreRingFill" cx="40" cy="40" r="35"/>
+    </svg>
+    <div class="score-num"><span id="scoreNum">--</span><small>分</small></div>
+  </div>
+  <div class="score-body">
+    <div class="score-title">综合性能评分</div>
+    <div class="score-grade">
+      等级：<span class="grade-badge" id="gradeBadge">--</span>
+      <span id="gradeDesc" style="color:var(--md-sys-color-on-surface-variant)">等待测试…</span>
+    </div>
+    <div class="score-tip" id="scoreTip">点击"开始测试"，程序将运行 WebGL 体积着色器渲染，测试您的 GPU 图形处理能力。</div>
+  </div>
+</div>
+
+<div class="divider"></div>
+<div class="footer">毒蘑菇 GPU 测试 · 复刻版 · 基于 WebGL Ray Marching 分形着色器 · 仅供学习参考</div>
+
+<!-- Snackbar -->
+<div class="snackbar" id="snackbar"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════
+//  WebGL Engine — Ray Marching Volume Shader
+// ═══════════════════════════════════════════════════════
+const canvas = document.getElementById('glCanvas');
+let gl = null;
+let program = null;
+let animId = null;
+let running = false;
+let paused = false;
+let startTime = 0;
+let totalFrames = 0;
+let fpsHistory = [];
+let fpsBuffer = [];
+let lastTimestamp = 0;
+let frameTimeSamples = [];
+let stutterCount = 0;
+let maxFps = 0, minFps = Infinity;
+let currentPreset = 2;
+let gpuRenderer = '--';
+let webglVer = '--';
+let elapsed = 0;
+
+// Preset: iterations count (controls GPU load)
+const PRESETS = { 1: 32, 2: 64, 3: 96, 4: 128 };
+const PRESET_NAMES = { 1:'轻度 (×1)', 2:'标准 (×2)', 3:'重度 (×3)', 4:'地狱 (×4)' };
+
+// ─── Shaders ───────────────────────────────────────────
+const VS = `
+attribute vec2 aPos;
+void main() { gl_Position = vec4(aPos, 0., 1.); }
+`;
+
+// Full-screen Ray Marching — Mandelbulb-inspired fractal mushroom
+function buildFS(iters) {
+return `
+precision highp float;
+uniform vec2  uRes;
+uniform float uTime;
+uniform int   uIter;
+
+// ── Signed Distance Function: Mandelbulb-like fractal ──
+float sdFractal(vec3 p) {
+  vec3 z = p;
+  float dr = 1.0;
+  float r = 0.0;
+  float power = 8.0 + sin(uTime * 0.12) * 1.5;
+  for (int i = 0; i < ${iters}; i++) {
+    r = length(z);
+    if (r > 2.0) break;
+    float theta = acos(z.z / r);
+    float phi   = atan(z.y, z.x);
+    dr = pow(r, power - 1.0) * power * dr + 1.0;
+    float zr = pow(r, power);
+    theta *= power;
+    phi   *= power;
+    z = zr * vec3(
+      sin(theta)*cos(phi),
+      sin(phi)*sin(theta),
+      cos(theta)
+    ) + p;
+  }
+  return 0.5 * log(r) * r / dr;
+}
+
+// ── Soft shadow & AO ──
+float calcAO(vec3 pos, vec3 nor) {
+  float occ = 0.0, sca = 1.0;
+  for (int i=0;i<5;i++) {
+    float h = 0.01 + 0.12 * float(i) / 4.0;
+    float d = sdFractal(pos + h * nor);
+    occ += (h - d) * sca;
+    sca *= 0.95;
+  }
+  return clamp(1.0 - 3.0 * occ, 0.0, 1.0);
+}
+
+// ── Ray March ──
+vec2 rayMarch(vec3 ro, vec3 rd) {
+  float t = 0.0;
+  for (int i = 0; i < 96; i++) {
+    vec3 p = ro + t * rd;
+    float d = sdFractal(p);
+    if (d < 0.0005) return vec2(t, float(i));
+    if (t > 6.0) break;
+    t += d * 0.65;
+  }
+  return vec2(-1.0, 0.0);
+}
+
+// ── Normal ──
+vec3 calcNormal(vec3 p) {
+  float e = 0.001;
+  return normalize(vec3(
+    sdFractal(p+vec3(e,0,0)) - sdFractal(p-vec3(e,0,0)),
+    sdFractal(p+vec3(0,e,0)) - sdFractal(p-vec3(0,e,0)),
+    sdFractal(p+vec3(0,0,e)) - sdFractal(p-vec3(0,0,e))
+  ));
+}
+
+// ── Palette ──
+vec3 palette(float t) {
+  vec3 a = vec3(0.5,0.5,0.5);
+  vec3 b = vec3(0.5,0.5,0.5);
+  vec3 c = vec3(1.0,1.0,1.0);
+  vec3 d = vec3(0.00,0.33,0.67);
+  return a + b * cos(6.28318*(c*t+d));
+}
+
+void main() {
+  vec2 uv = (gl_FragCoord.xy - 0.5 * uRes) / uRes.y;
+  float t = uTime * 0.25;
+
+  // Camera orbit
+  float camR = 2.8;
+  vec3 ro = vec3(
+    camR * cos(t),
+    camR * 0.35 * sin(t * 0.7) + 0.2,
+    camR * sin(t)
+  );
+  vec3 ta = vec3(0.0, 0.1, 0.0);
+  vec3 ww = normalize(ta - ro);
+  vec3 uu = normalize(cross(ww, vec3(0,1,0)));
+  vec3 vv = cross(uu, ww);
+  vec3 rd = normalize(uv.x * uu + uv.y * vv + 1.5 * ww);
+
+  // Background
+  float bg = 0.5 + 0.5 * dot(rd, vec3(0,1,0));
+  vec3 col = mix(vec3(0.03,0.02,0.06), vec3(0.06,0.02,0.12), bg);
+
+  vec2 res = rayMarch(ro, rd);
+  if (res.x > 0.0) {
+    vec3 p = ro + res.x * rd;
+    vec3 n = calcNormal(p);
+    float ao = calcAO(p, n);
+
+    // Lighting
+    vec3 ld1 = normalize(vec3(0.8, 1.0, 0.6));
+    vec3 ld2 = normalize(vec3(-0.6, 0.4, -0.7));
+    float diff1 = clamp(dot(n, ld1), 0.0, 1.0);
+    float diff2 = clamp(dot(n, ld2), 0.0, 1.0);
+    float spec  = pow(clamp(dot(reflect(-ld1, n), -rd), 0.0, 1.0), 32.0);
+    float fres  = pow(clamp(1.0 + dot(rd, n), 0.0, 1.0), 4.0);
+
+    // Color from position & iteration depth
+    float cf = length(p) * 0.5 + uTime * 0.05 + res.y * 0.003;
+    vec3 baseCol = palette(cf);
+
+    col  = baseCol * (diff1 * 1.1 + diff2 * 0.4 + 0.15);
+    col += vec3(1.0, 0.85, 0.6) * spec * 0.8;
+    col += baseCol * fres * 0.5;
+    col *= ao;
+
+    // Depth fog
+    float fog = 1.0 - exp(-res.x * 0.18);
+    col = mix(col, vec3(0.03,0.01,0.07), fog);
+  }
+
+  // Vignette
+  float vig = 1.0 - dot(uv * 1.2, uv * 1.2);
+  col *= clamp(vig, 0.0, 1.0);
+
+  // Tone map + gamma
+  col = col / (col + vec3(0.8));
+  col = pow(col, vec3(0.4545));
+
+  gl_FragColor = vec4(col, 1.0);
+}
+`;
+}
+
+// ─── Init WebGL ──────────────────────────────────────────
+function initGL() {
+  gl = canvas.getContext('webgl', { antialias: false, powerPreference: 'high-performance' })
+    || canvas.getContext('experimental-webgl');
+  if (!gl) { showSnack('⚠️ 浏览器不支持 WebGL'); return false; }
+
+  const ext = gl.getExtension('WEBGL_debug_renderer_info');
+  if (ext) {
+    gpuRenderer = gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) || 'Unknown';
+  } else {
+    gpuRenderer = gl.getParameter(gl.RENDERER) || 'Unknown';
+  }
+  webglVer = 'WebGL 1.0';
+  document.getElementById('infoRenderer').textContent = gpuRenderer;
+  document.getElementById('infoWebgl').textContent = webglVer;
+
+  return true;
+}
+
+function buildProgram(iters) {
+  if (program) { gl.deleteProgram(program); program = null; }
+  const vs = compileShader(gl.VERTEX_SHADER, VS);
+  const fs = compileShader(gl.FRAGMENT_SHADER, buildFS(iters));
+  if (!vs || !fs) return false;
+  program = gl.createProgram();
+  gl.attachShader(program, vs);
+  gl.attachShader(program, fs);
+  gl.linkProgram(program);
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    console.error('Link error:', gl.getProgramInfoLog(program));
+    return false;
+  }
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  const loc = gl.getAttribLocation(program, 'aPos');
+  gl.enableVertexAttribArray(loc);
+  gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+  return true;
+}
+
+function compileShader(type, src) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+    console.error('Shader error:', gl.getShaderInfoLog(s));
+    gl.deleteShader(s);
+    return null;
+  }
+  return s;
+}
+
+function resizeCanvas() {
+  const rect = canvas.parentElement.getBoundingClientRect();
+  const w = Math.floor(rect.width);
+  const h = Math.floor(rect.height);
+  canvas.width = w; canvas.height = h;
+  if (gl) gl.viewport(0, 0, w, h);
+  document.getElementById('infoRes').textContent = `${w} × ${h}`;
+}
+
+// ─── Render Loop ─────────────────────────────────────────
+function renderFrame(ts) {
+  if (!running || paused) return;
+  animId = requestAnimationFrame(renderFrame);
+
+  const dt = ts - lastTimestamp;
+  lastTimestamp = ts;
+  elapsed = (ts - startTime) / 1000;
+  totalFrames++;
+
+  // FPS calculation
+  fpsBuffer.push(ts);
+  fpsBuffer = fpsBuffer.filter(t => ts - t < 1000);
+  const fps = fpsBuffer.length;
+
+  frameTimeSamples.push(dt);
+  if (frameTimeSamples.length > 300) frameTimeSamples.shift();
+  fpsHistory.push(fps);
+  if (fpsHistory.length > 120) fpsHistory.shift();
+
+  if (fps > maxFps) maxFps = fps;
+  if (fps < minFps && fps > 0) minFps = fps;
+  if (fps < 20 && totalFrames > 60) stutterCount++;
+
+  // GPU load estimate: relative to 60fps baseline
+  const loadPct = Math.min(100, Math.round((1 - fps / 60) * 100 + 35));
+
+  // Render
+  gl.useProgram(program);
+  const uRes  = gl.getUniformLocation(program, 'uRes');
+  const uTime = gl.getUniformLocation(program, 'uTime');
+  gl.uniform2f(uRes, canvas.width, canvas.height);
+  gl.uniform1f(uTime, elapsed);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+  // Update UI every ~200ms
+  if (totalFrames % 12 === 0) updateUI(fps, dt, loadPct);
+  drawChart();
+}
+
+// ─── UI Update ───────────────────────────────────────────
+let uiRefCount = 0;
+function updateUI(fps, dt, loadPct) {
+  // Activate cards
+  ['cardFps','cardAvg','cardP1','cardFrame'].forEach(id => {
+    document.getElementById(id).classList.add('active');
+  });
+
+  // Current FPS
+  document.getElementById('valFps').innerHTML = `${fps}<span>FPS</span>`;
+  document.getElementById('subFps').textContent = fps >= 60 ? '🟢 流畅' : fps >= 30 ? '🟡 良好' : '🔴 卡顿';
+
+  // Avg FPS
+  const avg = fpsHistory.length
+    ? Math.round(fpsHistory.reduce((a,b)=>a+b,0)/fpsHistory.length)
+    : 0;
+  document.getElementById('valAvg').innerHTML = `${avg}<span>FPS</span>`;
+  document.getElementById('subAvg').textContent = `共 ${totalFrames} 帧`;
+
+  // 1% Low
+  const sorted = [...fpsHistory].sort((a,b)=>a-b);
+  const p1 = sorted[Math.floor(sorted.length * 0.01)] || 0;
+  document.getElementById('valP1').innerHTML = `${p1}<span>FPS</span>`;
+
+  // Frame time
+  const ft = dt.toFixed(1);
+  document.getElementById('valFrame').innerHTML = `${ft}<span>ms</span>`;
+  document.getElementById('subFrame').textContent = `抖动 ${calcJitter().toFixed(1)}ms`;
+
+  // HUD
+  const dot = document.getElementById('hudDot');
+  dot.className = 'hud-dot' + (fps < 20 ? ' danger' : fps < 40 ? ' warn' : '');
+  document.getElementById('hudFps').textContent = `${fps} FPS`;
+  document.getElementById('hudFrame').textContent = `帧时 ${ft} ms`;
+  document.getElementById('hudLoad').textContent = `负载 ~${loadPct}%`;
+  document.getElementById('hudTime').textContent = `${Math.floor(elapsed)}s`;
+
+  // Load bar
+  document.getElementById('loadPct').textContent = `~${loadPct}%`;
+  document.getElementById('loadBar').style.width = `${loadPct}%`;
+
+  // Stats
+  document.getElementById('statDuration').textContent = `${elapsed.toFixed(1)}s`;
+  document.getElementById('statFrames').textContent = totalFrames.toLocaleString();
+  document.getElementById('statMax').textContent = maxFps > 0 ? `${maxFps} FPS` : '--';
+  document.getElementById('statMin').textContent = minFps < Infinity ? `${minFps} FPS` : '--';
+  document.getElementById('statStutter').textContent = stutterCount;
+
+  // Score
+  computeScore(avg, p1);
+}
+
+function calcJitter() {
+  if (frameTimeSamples.length < 2) return 0;
+  const recent = frameTimeSamples.slice(-30);
+  const mean = recent.reduce((a,b)=>a+b,0)/recent.length;
+  const variance = recent.reduce((a,b)=>a+(b-mean)**2,0)/recent.length;
+  return Math.sqrt(variance);
+}
+
+function computeScore(avg, p1) {
+  if (avg <= 0) return;
+  // Score formula: weighted avg + p1 bonus + stability
+  const jitter = calcJitter();
+  const stabPenalty = Math.min(40, jitter * 2);
+  const raw = Math.min(100,
+    avg * 0.6 +
+    p1 * 0.3 +
+    (100 - stabPenalty) * 0.1
+  );
+  const score = Math.round(raw * PRESETS[currentPreset] / 32);
+
+  document.getElementById('scoreNum').textContent = score;
+  const fill = document.getElementById('scoreRingFill');
+  const pct = Math.min(1, score / 200);
+  fill.style.strokeDashoffset = 220 - 220 * pct;
+
+  let grade, desc, tip;
+  if (score >= 150) { grade='S+'; desc='旗舰级'; tip='您的 GPU 性能极其出色，能以高帧率流畅运行体积着色器。'; }
+  else if (score >= 100) { grade='S'; desc='旗舰级'; tip='您的 GPU 表现优异，适合高端游戏与专业渲染工作负载。'; }
+  else if (score >= 70) { grade='A'; desc='高性能'; tip='您的 GPU 性能良好，能够应对大多数高负载渲染任务。'; }
+  else if (score >= 45) { grade='B'; desc='主流水准'; tip='您的 GPU 属于主流性能，可以满足日常使用需求。'; }
+  else if (score >= 25) { grade='C'; desc='入门级'; tip='您的 GPU 性能较低，体积着色器渲染有明显压力。'; }
+  else { grade='D'; desc='性能有限'; tip='您的设备 GPU 性能不足，建议降低测试强度或停止测试。'; }
+
+  document.getElementById('gradeBadge').textContent = grade;
+  document.getElementById('gradeDesc').textContent = desc;
+  document.getElementById('scoreTip').textContent = tip;
+}
+
+// ─── FPS Chart ───────────────────────────────────────────
+function drawChart() {
+  const c = document.getElementById('fpsChart');
+  const ctx = c.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = c.parentElement.getBoundingClientRect();
+  const W = rect.width - 40;
+  const H = 80;
+  c.width = W * dpr; c.height = H * dpr;
+  c.style.width = W + 'px'; c.style.height = H + 'px';
+  ctx.scale(dpr, dpr);
+
+  const data = fpsHistory.slice(-120);
+  if (data.length < 2) return;
+
+  ctx.clearRect(0, 0, W, H);
+
+  // Grid lines
+  ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+  ctx.lineWidth = 1;
+  [15, 30, 60, 90].forEach(y => {
+    const py = H - (y / 100) * H;
+    ctx.beginPath(); ctx.moveTo(0, py); ctx.lineTo(W, py); ctx.stroke();
+  });
+  // Labels
+  ctx.fillStyle = 'rgba(255,255,255,0.2)';
+  ctx.font = '9px monospace';
+  [30, 60, 90].forEach(y => {
+    const py = H - (y / 100) * H;
+    ctx.fillText(y, 2, py - 2);
+  });
+
+  const maxV = Math.max(...data, 60);
+  const step = W / (data.length - 1);
+
+  // Fill gradient
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, 'rgba(156,39,176,0.55)');
+  grad.addColorStop(1, 'rgba(156,39,176,0.02)');
+  ctx.beginPath();
+  data.forEach((v, i) => {
+    const x = i * step;
+    const y = H - (v / maxV) * (H - 8);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.lineTo((data.length-1)*step, H);
+  ctx.lineTo(0, H);
+  ctx.closePath();
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // Line
+  ctx.beginPath();
+  ctx.strokeStyle = 'rgba(206,147,216,0.9)';
+  ctx.lineWidth = 1.5;
+  ctx.lineJoin = 'round';
+  data.forEach((v, i) => {
+    const x = i * step;
+    const y = H - (v / maxV) * (H - 8);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // Current dot
+  const last = data[data.length - 1];
+  const lx = (data.length - 1) * step;
+  const ly = H - (last / maxV) * (H - 8);
+  ctx.beginPath();
+  ctx.arc(lx, ly, 3.5, 0, Math.PI * 2);
+  ctx.fillStyle = '#CE93D8';
+  ctx.fill();
+}
+
+// ─── Controls ────────────────────────────────────────────
+function startTest() {
+  if (!gl) { if (!initGL()) return; }
+
+  const iters = PRESETS[currentPreset];
+  if (!buildProgram(iters)) {
+    showSnack('⚠️ 着色器编译失败，请刷新重试');
+    return;
+  }
+  resizeCanvas();
+
+  // Reset stats
+  running = true; paused = false;
+  startTime = performance.now();
+  lastTimestamp = startTime;
+  totalFrames = 0;
+  fpsHistory = []; fpsBuffer = [];
+  frameTimeSamples = [];
+  stutterCount = 0; maxFps = 0; minFps = Infinity;
+
+  document.getElementById('overlay').classList.add('hidden');
+  document.getElementById('hud').style.display = '';
+  document.getElementById('hudRight').style.display = '';
+  document.getElementById('startBtn').disabled = true;
+  document.getElementById('pauseBtn').disabled = false;
+  document.getElementById('stopBtn').disabled = false;
+  document.getElementById('exportBtn').disabled = false;
+  document.getElementById('chartStatus').textContent = '测试中…';
+  document.getElementById('infoPreset').textContent = PRESET_NAMES[currentPreset];
+
+  showSnack('🍄 测试已开始！');
+  animId = requestAnimationFrame(renderFrame);
+}
+
+function pauseTest() {
+  if (!running) return;
+  paused = !paused;
+  const btn = document.getElementById('pauseBtn');
+  if (paused) {
+    btn.textContent = '▶ 继续';
+    document.getElementById('chartStatus').textContent = '已暂停';
+    showSnack('⏸ 测试已暂停');
+  } else {
+    btn.textContent = '⏸ 暂停';
+    lastTimestamp = performance.now();
+    document.getElementById('chartStatus').textContent = '测试中…';
+    showSnack('▶ 测试继续');
+    animId = requestAnimationFrame(renderFrame);
+  }
+}
+
+function stopTest() {
+  running = false; paused = false;
+  if (animId) { cancelAnimationFrame(animId); animId = null; }
+
+  document.getElementById('startBtn').disabled = false;
+  document.getElementById('pauseBtn').disabled = true;
+  document.getElementById('stopBtn').disabled = true;
+  document.getElementById('pauseBtn').textContent = '⏸ 暂停';
+  document.getElementById('hud').style.display = 'none';
+  document.getElementById('hudRight').style.display = 'none';
+  document.getElementById('chartStatus').textContent = '已完成';
+  document.getElementById('overlay').classList.remove('hidden');
+  document.querySelector('.overlay-title').textContent = '测试已停止';
+  document.querySelector('.overlay-sub').textContent = `共运行 ${elapsed.toFixed(1)}s，渲染 ${totalFrames} 帧，可查看下方统计结果。`;
+  document.querySelector('.overlay-icon').textContent = '✅';
+  showSnack('✅ 测试完成！查看下方报告。');
+}
+
+function exportReport() {
+  const avg = fpsHistory.length
+    ? Math.round(fpsHistory.reduce((a,b)=>a+b,0)/fpsHistory.length) : 0;
+  const sorted = [...fpsHistory].sort((a,b)=>a-b);
+  const p1 = sorted[Math.floor(sorted.length * 0.01)] || 0;
+  const score = document.getElementById('scoreNum').textContent;
+  const grade = document.getElementById('gradeBadge').textContent;
+
+  const lines = [
+    '═══════════════════════════════════',
+    '  毒蘑菇 GPU 性能测试报告',
+    '═══════════════════════════════════',
+    `  时间：    ${new Date().toLocaleString()}`,
+    `  平台：    ${navigator.platform}`,
+    `  渲染器：  ${gpuRenderer}`,
+    `  WebGL：   ${webglVer}`,
+    `  测试强度：${PRESET_NAMES[currentPreset]}`,
+    '───────────────────────────────────',
+    `  综合评分：${score} 分 (等级 ${grade})`,
+    `  平均帧率：${avg} FPS`,
+    `  1% Low：  ${p1} FPS`,
+    `  最高帧率：${maxFps} FPS`,
+    `  最低帧率：${minFps === Infinity ? '--' : minFps} FPS`,
+    `  测试时长：${elapsed.toFixed(1)}s`,
+    `  总帧数：  ${totalFrames}`,
+    `  卡顿次数：${stutterCount}`,
+    '═══════════════════════════════════',
+  ].join('\n');
+
+  const blob = new Blob([lines], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `毒蘑菇测试报告_${Date.now()}.txt`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showSnack('📋 报告已导出！');
+}
+
+// ─── Snackbar ────────────────────────────────────────────
+let snackTimer = null;
+function showSnack(msg) {
+  const el = document.getElementById('snackbar');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(snackTimer);
+  snackTimer = setTimeout(() => el.classList.remove('show'), 2800);
+}
+
+// ─── Preset Chips ────────────────────────────────────────
+document.querySelectorAll('.preset-chip').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.preset-chip').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentPreset = parseInt(btn.dataset.preset);
+    document.getElementById('infoPreset').textContent = PRESET_NAMES[currentPreset];
+    if (running) {
+      stopTest();
+      setTimeout(() => { showSnack(`⚡ 已切换至「${btn.textContent}」，请重新开始测试`); }, 300);
+    }
+  });
+});
+
+// ─── Event Bindings ──────────────────────────────────────
+document.getElementById('startBtn').addEventListener('click', startTest);
+document.getElementById('pauseBtn').addEventListener('click', pauseTest);
+document.getElementById('stopBtn').addEventListener('click', stopTest);
+document.getElementById('exportBtn').addEventListener('click', exportReport);
+window.addEventListener('resize', () => { if (running) resizeCanvas(); });
+
+// ─── Boot ────────────────────────────────────────────────
+(function boot() {
+  resizeCanvas();
+  initGL();
+  document.getElementById('infoRes').textContent = `${canvas.width} × ${canvas.height}`;
+  document.getElementById('infoPreset').textContent = PRESET_NAMES[currentPreset];
+  document.getElementById('infoPlatform').textContent = navigator.platform || 'Unknown';
+})();
+</script>
+</body>
+</html>
