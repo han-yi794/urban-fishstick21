@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
+    <title>CPU性能测试 Pro</title>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        html,body{width:100%;height:100%;overflow:hidden;background:#050505;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC",sans-serif;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none;-webkit-font-smoothing:antialiased}
+        .app{display:flex;flex-direction:column;height:100%;height:100dvh}
+        .hd{padding:12px 20px;padding-top:max(12px,env(safe-area-inset-top));display:flex;align-items:center;justify-content:space-between;background:linear-gradient(180deg,rgba(255,59,48,0.08),transparent)}
+        .hd-t{font-size:18px;font-weight:700;letter-spacing:-0.5px;background:linear-gradient(90deg,#ff3b30,#ff9500);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+        .dot{width:10px;height:10px;border-radius:50%;background:#1a1a1a;transition:all .3s;box-shadow:0 0 0 2px transparent}
+        .dot.cal{background:#ff9f0a;box-shadow:0 0 8px #ff9f0a}
+        .dot.run{background:#30d158;box-shadow:0 0 8px #30d158}
+        .dot.pro{background:#ff0000;box-shadow:0 0 12px #ff0000;animation:pulse 1s infinite}
+        .dot.stop{background:#ff3b30}
+        @keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}
+        .ca{flex:1;min-height:0;position:relative}
+        .ca canvas{width:100%;height:100%;display:block}
+        .ca::after{content:'';position:absolute;bottom:0;left:0;right:0;height:40px;background:linear-gradient(transparent,#050505);pointer-events:none}
+        .dt{flex-shrink:0;background:linear-gradient(0deg,rgba(255,59,48,0.05),transparent)}
+        .fp{text-align:center;padding:4px 0 2px}
+        .fv{font-size:72px;font-weight:900;line-height:1;letter-spacing:-4px;font-variant-numeric:tabular-nums;transition:all .15s;text-shadow:0 0 30px currentColor}
+        .fl{font-size:12px;color:#444;letter-spacing:4px;margin-top:4px;font-weight:600}
+        .ch{display:none;text-align:center;font-size:13px;color:#ff9f0a;padding:4px 0;font-weight:500}
+        .ms{display:flex;justify-content:space-around;padding:12px 16px;border-top:1px solid #1a1a1a}
+        .m{text-align:center;position:relative}
+        .m::after{content:'';position:absolute;right:-50%;top:50%;transform:translateY(-50%);width:1px;height:20px;background:#222}
+        .m:last-child::after{display:none}
+        .mv{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums;transition:all .2s}
+        .ml{font-size:10px;color:#444;margin-top:4px;letter-spacing:1px}
+        .sb{display:none;text-align:center;padding:8px 0 4px;background:linear-gradient(180deg,transparent,rgba(255,59,48,0.1))}
+        .sv{font-size:56px;font-weight:900;line-height:1;letter-spacing:-2px;background:linear-gradient(180deg,#ff3b30,#ff9500);-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-variant-numeric:tabular-nums}
+        .stl{font-size:12px;color:#555;margin-top:6px;letter-spacing:2px}
+        .sr{font-size:15px;color:#888;margin-top:8px;font-weight:600;padding:0 20px}
+        .df{display:flex;gap:8px;padding:0 16px;margin-bottom:12px;transition:opacity .2s}
+        .db{flex:1;height:40px;border:1px solid #222;border-radius:10px;background:#0a0a0a;color:#555;font-size:13px;font-weight:600;cursor:pointer;transition:all .15s}
+        .db.on{border-color:#ff3b30;color:#ff3b30;background:rgba(255,59,48,0.08)}
+        .db.pro{border-color:#4a0000;color:#8b0000;background:#1a0505}
+        .db.pro.on{border-color:#ff0000;color:#ff0000;background:linear-gradient(180deg,rgba(255,0,0,0.2),rgba(139,0,0,0.1));box-shadow:0 0 15px rgba(255,0,0,0.3),inset 0 1px 0 rgba(255,100,100,0.2)}
+        .db:active{transform:scale(0.96)}
+        .bw{padding:0 20px 10px}
+        .bt{width:100%;height:52px;border:none;border-radius:12px;font-size:16px;font-weight:700;color:#fff;cursor:pointer;transition:all .15s;position:relative;overflow:hidden}
+        .bt::before{content:'';position:absolute;top:0;left:-100%;width:100%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,0.2),transparent);transition:left .5s}
+        .bt:hover::before{left:100%}
+        .bt:active{transform:scale(0.98)}
+        .bg{background:linear-gradient(180deg,#ff3b30,#c41e3a);box-shadow:0 4px 15px rgba(255,59,48,0.3)}
+        .bs{background:linear-gradient(180deg,#333,#222);box-shadow:0 4px 15px rgba(0,0,0,0.3)}
+        .bt:disabled{opacity:.3;pointer-events:none}
+        .ft{padding:0 24px;padding-bottom:max(14px,env(safe-area-inset-bottom));text-align:center;font-size:13px;color:#444;line-height:1.6;min-height:40px;transition:all .3s}
+        .cg{color:#30d158;text-shadow:0 0 20px rgba(48,209,88,0.3)}.cw{color:#ff9f0a;text-shadow:0 0 20px rgba(255,159,10,0.3)}.cr{color:#ff3b30;text-shadow:0 0 20px rgba(255,59,48,0.3)}.ci{color:#555}
+        .temp{display:flex;align-items:center;justify-content:center;gap:6px;font-size:11px;color:#333;margin-top:4px}
+        .temp-bar{width:60px;height:4px;background:#1a1a1a;border-radius:2px;overflow:hidden}
+        .temp-fill{height:100%;width:0%;background:linear-gradient(90deg,#30d158,#ff9f0a,#ff3b30);transition:width .3s}
+    </style>
+</head>
+<body>
+<div class="app">
+    <div class="hd">
+        <span class="hd-t">🔥 CPU性能测试 Pro</span>
+        <div class="dot" id="dot"></div>
+    </div>
+    <div class="ca"><canvas id="cv"></canvas></div>
+    <div class="dt">
+        <div class="fp">
+            <div class="fv ci" id="fv">--</div>
+            <div class="fl">FPS</div>
+            <div class="temp">
+                <span>负载:</span>
+                <div class="temp-bar"><div class="temp-fill" id="tp"></div></div>
+                <span id="tpv">0%</span>
+            </div>
+        </div>
+        <div class="ch" id="ch">🔧 校准基准帧率中...</div>
+        <div class="ms">
+            <div class="m"><div class="mv" id="el">-</div><div class="ml">负载等级</div></div>
+            <div class="m"><div class="mv" id="et">00:00</div><div class="ml">运行时间</div></div>
+            <div class="m"><div class="mv" id="eo">-</div><div class="ml">运算量/帧</div></div>
+        </div>
+    </div>
+    <div class="sb" id="sb">
+        <div class="sv" id="sv">0</div>
+        <div class="stl">PERFORMANCE SCORE</div>
+        <div class="sr" id="srt">等待测试</div>
+    </div>
+    <div class="df" id="df">
+        <button class="db" onclick="pickDiff(0)">简单</button>
+        <button class="db" onclick="pickDiff(1)">困难</button>
+        <button class="db" onclick="pickDiff(2)">地狱</button>
+        <button class="db pro on" onclick="pickDiff(3)">地狱 Pro</button>
+    </div>
+    <div class="bw"><button class="bt bg" id="bt" onclick="tap()">开始测试</button></div>
+    <div class="ft" id="ft">💀 地狱 Pro 模式：专为旗舰芯片设计，普通设备可能直接卡死</div>
+</div>
+<script>
+/* ===== 难度配置 ===== */
+const DIFFS=[
+    {name:'简单',msStep:2,msInit:2,msMax:80,mul:1.0,accel:1},
+    {name:'困难',msStep:4,msInit:3,msMax:100,mul:2.0,accel:1.1},
+    {name:'地狱',msStep:8,msInit:5,msMax:150,mul:4.0,accel:1.2},
+    {name:'地狱 Pro',msStep:20,msInit:10,msMax:300,mul:10.0,accel:1.5,pro:true}
+];
+let diffIdx=3;
+
+/* ===== 文案库 ===== */
+const taunts=[
+    "你的CPU是用算盘做的吗？","这块芯片是博物馆借来的吧？",
+    "测试结束，CPU已提交辞职信","你的处理器正在拨打劳动仲裁热线",
+    "这算力，不如我奶奶口算快","建议把CPU供起来当古董",
+    "你的手机在测试期间学会了冒烟","这块芯片的性能约等于土豆电池",
+    "CPU温度高到可以煎溏心蛋了","测试完成，建议立即送修",
+    "你的处理器刚才写了遗书","这运算速度，时间都开始倒流了",
+    "地狱 Pro 都敢选？勇士！","你的CPU正在经历二战级别的摧残",
+    "测试结束，芯片已达成'烈士'成就","建议换台计算器，性能可能更好",
+    "你的CPU在测试中完成了自我毁灭","这块处理器的主要功能是发热和降频",
+    "地狱 Pro 模式：CPU的终极噩梦","你的手机说它真的、真的尽力了",
+    "这个分数，建议刻在CPU的墓志铭上","测试时主板差点申请工伤认定",
+    "你的CPU运算靠的不是硅，是信仰","地狱 Pro 模式下，时间变得好漫长",
+    "选了这个难度，你已经赢了（指勇气）","你的处理器正在考虑转行当暖手宝",
+    "测试结束，建议为CPU举行葬礼","这性能，打开设置都要转三圈",
+    "你的CPU在地狱 Pro 模式下羽化登仙了","芯片说：下辈子不做你的CPU了"
+];
+const runTxt=[
+    "🔥 CPU开始升温...","💨 散热器正在尖叫...",
+    "⚡ 运算核心全速运转...","🌡️ 温度突破警戒线...",
+    "💀 地狱 Pro 模式已激活","🔥 芯片正在经历涅槃...",
+    "⚠️ 系统稳定性受到挑战","🚀 性能榨取中...",
+    "💥 运算量突破天际","🔴 红色警报：CPU极限状态",
+    "⏱️ 每一秒都是煎熬","🎯 精准打击CPU性能上限",
+    "💪 还能撑住吗？","🔥 这是自杀式压力测试",
+    "⚡ 电表正在倒转...","🌋 CPU核心即将喷发",
+    "💀 地狱 Pro 不是开玩笑的","🔥 你的芯片在燃烧"
+];
+
+/* ===== DOM & Canvas ===== */
+const $=id=>document.getElementById(id);
+const fv=$('fv'),dot=$('dot'),ch=$('ch'),df=$('df');
+const el=$('el'),et=$('et'),eo=$('eo'),tp=$('tp'),tpv=$('tpv');
+const sb=$('sb'),sv=$('sv'),srt=$('srt');
+const bt=$('bt'),ft=$('ft'),cv=$('cv');
+const ctx=cv.getContext('2d',{alpha:false});
+
+/* ===== 波形系统 ===== */
+const waves=[
+    {f:0.02,a:0.25,p:0,r:255,g:50,b:40,w:2.5},
+    {f:0.015,a:0.35,p:1.5,r:255,g:100,b:30,w:2},
+    {f:0.025,a:0.2,p:3,r:255,g:140,b:20,w:1.5},
+    {f:0.01,a:0.4,p:4.5,r:220,g:60,b:30,w:1.2},
+    {f:0.03,a:0.15,p:6,r:255,g:80,b:50,w:1},
+    {f:0.008,a:0.3,p:7.5,r:200,g:40,b:25,w:0.8}
+];
+let wbuf=[],hbuf=0,time=0;
+
+function resize(){
+    const dpr=Math.min(window.devicePixelRatio||1,2);
+    const w=Math.floor(cv.clientWidth*dpr),h=Math.floor(cv.clientHeight*dpr);
+    if(cv.width!==w||cv.height!==h){
+        cv.width=w;cv.height=h;
+        wbuf=new Float32Array(w+1);
+        hbuf=h;
+    }
+}
+
+function drawWaves(dt,load,isPro){
+    const w=cv.width,h=cv.height,cy=h>>1;
+    const trail=isPro?Math.max(0.02,0.15-load*0.12):Math.max(0.05,0.25-load*0.18);
+    
+    // 背景清除（带拖尾）
+    ctx.fillStyle=`rgba(5,5,5,${trail})`;
+    ctx.fillRect(0,0,w,h);
+    
+    // 地狱 Pro 脉冲背景
+    if(isPro&&load>0.5){
+        const pulse=Math.sin(time*15)*0.5+0.5;
+        const intensity=(load-0.5)*2*pulse*0.15;
+        ctx.fillStyle=`rgba(139,0,0,${intensity})`;
+        ctx.fillRect(0,0,w,h);
+    }
+    
+    // 预计算波形
+    for(let wi=0;wi<waves.length;wi++){
+        const wv=waves[wi];
+        const r=isPro?Math.min(255,wv.r+60):wv.r;
+        const g=isPro?Math.max(0,wv.g-30):wv.g;
+        const b=isPro?Math.max(0,wv.b-15):wv.b;
+        
+        ctx.beginPath();
+        ctx.strokeStyle=`rgba(${r},${g},${b},${isPro?0.6:0.4})`;
+        ctx.lineWidth=isPro?wv.w*1.3:wv.w;
+        
+        const f1=wv.f*w,t1=time*0.8+wv.p,f2=wv.f*w*2.1,t2=time*0.5;
+        const amp=wv.a*h*0.5,amp2=wv.a*h*0.15;
+        const noiseAmp=isPro?load*h*0.5:load*h*0.25;
+        
+        for(let x=0;x<=w;x+=isPro?1:2){
+            const nx=x/w;
+            let y=cy+Math.sin(nx*f1+t1)*amp+Math.sin(nx*f2+t2+wv.p*0.7)*amp2;
+            
+            // 噪声抖动
+            if(load>0)y+=(Math.random()-0.5)*noiseAmp;
+            // 地狱 Pro 高频干扰
+            if(isPro&&load>0.6)y+=Math.sin(x*0.8+time*80)*load*8;
+            
+            wbuf[x]=y;
+        }
+        
+        // 绘制优化
+        ctx.moveTo(0,wbuf[0]);
+        for(let x=1;x<=w;x++)ctx.lineTo(x,wbuf[x]);
+        ctx.stroke();
+    }
+    
+    // 扫描线效果
+    if(isPro&&load>0.7){
+        ctx.fillStyle='rgba(255,0,0,0.04)';
+        for(let y=(time*50|0)%4;y<h;y+=4){
+            if(Math.random()>0.6)ctx.fillRect(0,y,w,1);
+        }
+    }
+    
+    time+=dt;
+}
+
+/* ===== CPU压力核心 ===== */
+function cpuStress(targetMs,isPro){
+    const start=performance.now();
+    let ops=0,x=1.234567,y=9.876543,z=3.141592;
+    
+    // 内存压力预分配
+    const memSize=isPro?10000:2000;
+    const arr=new Float64Array(memSize);
+    for(let i=0;i<memSize;i++)arr[i]=Math.random();
+    
+    // SIMD-like 批量运算
+    const batch=isPro?100:50;
+    
+    while(performance.now()-start<targetMs){
+        // 核心浮点运算
+        for(let b=0;b<batch;b++){
+            const sx=Math.sin(x),cx=Math.cos(x),tx=Math.tan(x*0.5);
+            x=((sx*cx+tx)*y+z)%1000000;
+            y=Math.sqrt(Math.abs(x*y+1))+Math.log(Math.abs(x)+1.001);
+            z=Math.atan2(x,y)*Math.exp(-0.001*ops)+Math.sin(z);
+            ops++;
+        }
+        
+        // 地狱 Pro 额外层
+        if(isPro){
+            // 矩阵模拟
+            for(let i=0;i<20;i++){
+                const idx=(ops&0x3FFF)%memSize;
+                const a=arr[idx],b=arr[(idx+1)%memSize];
+                arr[idx]=Math.sin(a*10)*Math.cos(b*10)+x*0.001;
+            }
+            // 复杂整数运算
+            if((ops&2047)===0){
+                let n=(Math.abs(x*1e9)|0)%999999937;
+                // 米勒-拉宾素性测试简化
+                let d=n-1,s=0;
+                while((d&1)===0){d>>=1;s++}
+                for(let a of [2,3,5,7,11]){
+                    if(a>=n)continue;
+                    let x=1,p=a,e=d;
+                    while(e){
+                        if(e&1)x=(x*p)%n;
+                        p=(p*p)%n;e>>=1;
+                    }
+                    if(x===1||x===n-1)continue;
+                    let composite=true;
+                    for(let r=1;r<s;r++){
+                        x=(x*x)%n;
+                        if(x===n-1){composite=false;break}
+                    }
+                    if(composite){n=0;break}
+                }
+            }
+        }else{
+            // 普通模式简单整数
+            if((ops&1023)===0){
+                let n=(Math.abs(x*1e6)|0)%999999+100003;
+                for(let d=2;d*d<n&&d<1000;d+=(d>2?2:1)){
+                    if(n%d===0)break;
+                }
+            }
+        }
+    }
+    
+    return ops;
+}
+
+/* ===== 状态管理 ===== */
+let st='idle',baseFps=0,curFps=0,level=1;
+let t0=0,testT0=0,fc=0,lastFt=0;
+let totalOps=0,sampleOps=0,sampleFc=0;
+let animId=null,txtIdx=0,lastTxt=0;
+let calSum=0,calCnt=0;
+
+function setDot(cls){dot.className='dot'+(cls?' '+cls:'')}
+
+function pickDiff(i){
+    if(st!=='idle'&&st!=='finished')return;
+    diffIdx=i;
+    document.querySelectorAll('.db').forEach((b,j)=>{
+        b.classList.toggle('on',j===i);
+        b.classList.toggle('pro',DIFFS[j].pro);
+    });
+    ft.innerHTML=i===3?'💀 <b>地狱 Pro</b>：专为M系列/A系列旗舰设计，普通设备可能卡死':'选个难度，点击开始测试';
+}
+
+function tap(){
+    if(st==='idle'||st==='finished')start();else stop();
+}
+
+function start(){
+    // 重置
+    baseFps=curFps=0;level=1;totalOps=sampleOps=sampleFc=0;
+    calSum=calCnt=0;txtIdx=0;lastTxt=0;time=0;
+    t0=performance.now();lastFt=t0;fc=0;
+    st='calibrating';
+    
+    // UI
+    fv.textContent='--';fv.className='fv ci';
+    el.textContent='-';et.textContent='00:00';eo.textContent='-';
+    tp.style.width='0%';tpv.textContent='0%';
+    sb.style.display='none';ch.style.display='block';
+    setDot('cal');
+    bt.textContent='停止测试';bt.className='bt bs';
+    ft.textContent='🔧 校准基准帧率（保持静止）...';
+    df.style.opacity='0.3';df.style.pointerEvents='none';
+    
+    if(animId)cancelAnimationFrame(animId);
+    loop();
+}
+
+function stop(){
+    done('⏹️ 手动终止测试'+(st==='calibrating'?'（校准阶段）':''));
+}
+
+function done(msg){
+    st='finished';
+    if(animId){cancelAnimationFrame(animId);animId=null}
+    
+    const d=DIFFS[diffIdx];
+    const isPro=d.pro;
+    let score=testT0?Math.round(totalOps/1000*d.mul):Math.max(0,Math.round((baseFps||1)*50*d.mul));
+    
+    // 显示分数
+    sb.style.display='block';
+    animateNum(sv,score);
+    
+    // 评级
+    let rank;
+    if(isPro){
+        if(score>=200000)rank='🏆 传说级（超越极限）';
+        else if(score>=100000)rank='🥇 神级（顶级旗舰）';
+        else if(score>=50000)rank='🥈 超旗舰级';
+        else if(score>=20000)rank='🥉 旗舰级';
+        else if(score>=5000)rank='💀 地狱 Pro 幸存者';
+        else rank='❌ 不建议继续使用此设备';
+    }else{
+        if(score>=30000)rank='🔥 怪物级';
+        else if(score>=15000)rank='⚡ 旗舰级';
+        else if(score>=8000)rank='💪 中高端级';
+        else if(score>=4000)rank='👌 中端级';
+        else if(score>=1000)rank='📱 入门级';
+        else rank='🗑️ 电子垃圾级';
+    }
+    srt.innerHTML=`<b>${rank}</b>`;
+    
+    // 恢复UI
+    ch.style.display='none';
+    setDot(isPro?'pro':'stop');
+    bt.textContent='重新测试';bt.className='bt bg';
+    ft.innerHTML=msg||taunts[Math.floor(Math.random()*taunts.length)];
+    df.style.opacity='1';df.style.pointerEvents='auto';
+    
+    // 清屏
+    ctx.fillStyle='#050505';ctx.fillRect(0,0,cv.width,cv.height);
+}
+
+function animateNum(el,target){
+    let current=0,step=Math.max(1,Math.ceil(target/30));
+    const iv=setInterval(()=>{
+        current+=step;
+        if(current>=target){current=target;clearInterval(iv)}
+        el.textContent=current.toLocaleString();
+    },33);
+}
+
+function fmtOps(n){
+    if(n<1e4)return n.toLocaleString();
+    if(n<1e8)return(n/1e4).toFixed(1)+'万';
+    if(n<1e12)return(n/1e8).toFixed(1)+'亿';
+    return(n/1e12).toFixed(2)+'万亿';
+}
+
+/* ===== 主循环 ===== */
+function loop(){
+    animId=requestAnimationFrame(loop);
+    resize();
+    
+    const now=performance.now();
+    const d=DIFFS[diffIdx];
+    const isPro=d.pro;
+    const elapsed=testT0?(now-testT0)/1000:0;
+    
+    // 计算目标负载时间
+    let targetMs=0;
+    if(st==='testing'){
+        const growth=Math.pow(level,d.accel);
+        targetMs=Math.min(d.msInit+growth*d.msStep,d.msMax);
+    }
+    
+    // 执行压力测试
+    let frameOps=0;
+    if(targetMs>0)frameOps=cpuStress(targetMs,isPro);
+    if(st==='testing'){
+        totalOps+=frameOps;
+        sampleOps+=frameOps;
+        sampleFc++;
+    }
+    
+    // 计算负载比例
+    const loadRatio=targetMs>0?Math.min(targetMs/d.msMax,1):0;
+    
+    // 绘制
+    const dt=(now-t0)/1000;
+    drawWaves(0.016,loadRatio,isPro);
+    fc++;
+    
+    // 500ms更新UI
+    if(now-lastFt>=500){
+        curFps=Math.round(fc*1000/(now-lastFt));
+        fc=0;lastFt=now;
+        
+        // FPS颜色
+        fv.textContent=curFps;
+        if(curFps>=60)fv.className='fv cg';
+        else if(curFps>=30)fv.className='fv cw';
+        else fv.className='fv cr';
+        
+        // 温度条
+        const temp=Math.min(100,Math.round(loadRatio*100));
+        tp.style.width=temp+'%';
+        tpv.textContent=temp+'%';
+        tpv.style.color=temp>80?'#ff3b30':temp>50?'#ff9f0a':'#30d158';
+        
+        // 校准阶段
+        if(st==='calibrating'){
+            calCnt++;calSum+=curFps;
+            
+            // 校准失败检测
+            if(curFps<5&&calCnt>=2){
+                baseFps=Math.round(calSum/calCnt);
+                testT0=0;done('❌ 设备性能过低，无法完成校准');
+                return;
+            }
+            // 校准完成
+            if(calCnt>=6){
+                baseFps=Math.round(calSum/calCnt);
+                if(baseFps<12){testT0=0;done('❌ 基准帧率过低，建议换设备');return}
+                
+                st='testing';testT0=performance.now();
+                ch.style.display='none';
+                setDot(isPro?'pro':'run');
+                ft.innerHTML=isPro?'🔥 <b>地狱 Pro 模式启动！</b> 准备迎接噩梦...':'⚡ 测试开始！全力运转中...';
+                lastTxt=now;
+            }
+        }
+        
+        // 测试阶段
+        if(st==='testing'){
+            level=Math.floor(elapsed)+1;
+            
+            el.textContent='Lv.'+level;
+            eo.textContent=fmtOps(sampleFc>0?Math.round(sampleOps/sampleFc):0);
+            sampleOps=0;sampleFc=0;
+            
+            const mm=Math.floor(elapsed/60),ss=Math.floor(elapsed%60);
+            et.textContent=`${mm<10?'0':''}${mm}:${ss<10?'0':''}${ss}`;
+            
+            // 轮换文案
+            const txtIntv=isPro?4000:6000;
+            if(now-lastTxt>txtIntv){
+                txtIdx=(txtIdx+1)%runTxt.length;
+                ft.textContent=runTxt[txtIdx];
+                lastTxt=now;
+            }
+            
+            // 结束条件
+            if(isPro){
+                // 地狱 Pro 更严格
+                if(curFps<=baseFps*0.12&&elapsed>3){
+                    done(`🏁 地狱 Pro 挑战结束！坚持${elapsed.toFixed(1)}秒`);
+                    return;
+                }
+                if(curFps<=1&&elapsed>2){
+                    done('💀 地狱 Pro：CPU完全崩溃');
+                    return;
+                }
+                if(elapsed>90){
+                    done('🏆 地狱 Pro 90秒极限挑战完成！传奇！');
+                    return;
+                }
+            }else{
+                if(curFps<=baseFps*0.1&&elapsed>4){
+                    done(`✅ 测试完成！坚持${elapsed.toFixed(1)}秒`);
+                    return;
+                }
+                if(curFps<=2&&elapsed>3){
+                    done('⚠️ 帧率过低，测试终止');
+                    return;
+                }
+                if(elapsed>120){
+                    done('🏆 120秒耐力挑战完成！');
+                    return;
+                }
+            }
+        }
+    }
+}
+
+// 初始化
+resize();
+ctx.fillStyle='#050505';ctx.fillRect(0,0,cv.width,cv.height);
+
+// 空闲动画
+function idle(){
+    if(st!=='idle'&&st!=='finished')return;
+    resize();
+    time+=0.016;
+    drawWaves(0.016,0,diffIdx===3);
+    requestAnimationFrame(idle);
+}
+idle();
+
+// 窗口调整
+window.addEventListener('resize',resize);
+</script>
+</body>
+</html>
